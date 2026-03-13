@@ -70,6 +70,7 @@ def _serialize_period(p: SettlementPeriod) -> dict:
         "difference": p.difference,
         "difference_fmt": _fmt_eur(p.difference),
         "status": p.status,
+        "note": p.note,
         "belongs_to_target_month": p.belongs_to_target_month,
         "transaction_count": p.transaction_count,
         "transfer_row_count": p.transfer_row_count,

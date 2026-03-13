@@ -38,10 +38,11 @@ class SettlementPeriod:
     transfer_amount: float           # Positive value (what was received)
     sum_transactions: float          # Sum of all non-transfer rows (sign-preserved)
     difference: float                # transfer_amount + sum_transactions (should ≈ 0)
-    status: str                      # "ok" | "warning" | "error"
+    status: str                      # "ok" | "warning" | "error" | "info"
     belongs_to_target_month: bool
     transaction_count: int = 0
     transfer_row_count: int = 0
+    note: str = ""                   # e.g. "transfer_prev_month"
 
 
 @dataclass
@@ -212,103 +213,148 @@ def _analyse_settlement_periods(
     target_year: int,
     target_month: int,
 ) -> List[SettlementPeriod]:
-    """Analyse settlement periods and determine which belong to the target month."""
+    """
+    Analyse settlement periods and determine which belong to the target month.
+
+    Amazon registers transfer rows under the NEXT period's numero_pagamento,
+    not the period being settled.  We therefore:
+    1. Collect ALL transfer rows from the entire dataframe.
+    2. Build period data (dates, tx-sum) from non-transfer rows only.
+    3. Match each transfer to the period whose sum_transactions it settles
+       (|transfer_amount| ≈ sum_transactions ± TOLERANCE).
+    4. Periods with no matched transfer get status="info" / note="transfer_prev_month".
+    """
 
     if "numero_pagamento" not in df.columns:
         return []
 
-    periods = []
+    # ── Separate transfers from regular transactions ──────────────────────────
+    if "tipo" in df.columns:
+        is_transfer_mask = df["tipo"].str.strip().str.lower() == "trasferimento"
+    else:
+        is_transfer_mask = pd.Series([False] * len(df), index=df.index)
 
-    for period_id, group in df.groupby("numero_pagamento", sort=False):
-        if not period_id or str(period_id).strip() == "":
+    all_transfers = df[is_transfer_mask].copy()
+    all_non_transfers = df[~is_transfer_mask].copy()
+
+    # ── Build period_data from non-transfer rows ──────────────────────────────
+    # period_id → {"sum_tx": float, "valid_dates": Series, "tx_count": int}
+    period_data: Dict[str, dict] = {}
+
+    for period_id, group in all_non_transfers.groupby("numero_pagamento", sort=False):
+        pid = str(period_id).strip()
+        if not pid:
             continue
 
-        # Parse dates
         dates = pd.to_datetime(
-            group["data_ora_parsed"] if "data_ora_parsed" in group.columns else pd.Series([]),
-            errors="coerce"
+            group["data_ora_parsed"] if "data_ora_parsed" in group.columns else pd.Series([], dtype=object),
+            errors="coerce",
         )
         valid_dates = dates.dropna()
+        sum_tx = _safe_sum(group["totale_num"]) if "totale_num" in group.columns else 0.0
+
+        period_data[pid] = {
+            "sum_tx": sum_tx,
+            "valid_dates": valid_dates,
+            "tx_count": len(group),
+        }
+
+    # Also register period IDs that appear only in transfer rows
+    for period_id, group in all_transfers.groupby("numero_pagamento", sort=False):
+        pid = str(period_id).strip()
+        if pid and pid not in period_data:
+            dates = pd.to_datetime(
+                group["data_ora_parsed"] if "data_ora_parsed" in group.columns else pd.Series([], dtype=object),
+                errors="coerce",
+            )
+            period_data[pid] = {
+                "sum_tx": 0.0,
+                "valid_dates": dates.dropna(),
+                "tx_count": 0,
+            }
+
+    # ── Build list of available transfers (index, float value) ───────────────
+    def _transfer_val(row: pd.Series) -> float:
+        for col in ("altro_num", "totale_num"):
+            if col in all_transfers.columns:
+                v = row.get(col)
+                if v is not None and not (isinstance(v, float) and math.isnan(v)):
+                    return float(v)
+        return 0.0
+
+    available_transfers: List[Tuple[int, float]] = [
+        (idx, _transfer_val(row)) for idx, row in all_transfers.iterrows()
+    ]
+    used_transfer_indices: set = set()
+
+    # ── Match each period to a transfer ──────────────────────────────────────
+    # Periods sorted by sum_tx descending so large periods claim their transfer first
+    sorted_pids = sorted(period_data.keys(), key=lambda pid: period_data[pid]["sum_tx"], reverse=True)
+
+    period_transfers: Dict[str, List[float]] = {pid: [] for pid in period_data}
+
+    for pid in sorted_pids:
+        sum_tx = period_data[pid]["sum_tx"]
+        if sum_tx <= 0:
+            continue  # transfers are always positive outflows; skip negative/zero periods
+
+        for i, (idx, tval) in enumerate(available_transfers):
+            if idx in used_transfer_indices:
+                continue
+            if abs(abs(tval) - sum_tx) <= TOLERANCE:
+                period_transfers[pid].append(tval)
+                used_transfer_indices.add(idx)
+                break
+
+    # ── Build SettlementPeriod objects ────────────────────────────────────────
+    periods = []
+
+    for pid, data in period_data.items():
+        valid_dates = data["valid_dates"]
+        sum_tx = data["sum_tx"]
+        tx_count = data["tx_count"]
+
         date_start = valid_dates.min() if not valid_dates.empty else None
         date_end = valid_dates.max() if not valid_dates.empty else None
 
-        # Determine if this period belongs to the target month
-        belongs = _period_belongs_to_month(group, date_start, date_end, target_year, target_month)
+        matched = period_transfers.get(pid, [])
+        transfer_total = sum(matched)
+        transfer_amount = abs(transfer_total)
+        transfer_row_count = len(matched)
 
-        # Separate transfer rows from regular transaction rows
-        is_transfer = (
-            group["tipo"].str.strip().str.lower() == "trasferimento"
-            if "tipo" in group.columns
-            else pd.Series([False] * len(group))
-        )
+        difference = sum_tx - transfer_amount
 
-        transfer_rows = group[is_transfer]
-        transaction_rows = group[~is_transfer]
-
-        # Sum of all transfers (the "altro_num" column holds the transfer amount, negative)
-        if "altro_num" in transfer_rows.columns:
-            transfer_total = _safe_sum(transfer_rows["altro_num"])
-        elif "totale_num" in transfer_rows.columns:
-            transfer_total = _safe_sum(transfer_rows["totale_num"])
+        if transfer_row_count == 0:
+            st = "info"
+            note = "transfer_prev_month"
         else:
-            transfer_total = 0.0
+            st = "ok" if abs(difference) <= TOLERANCE else "warning"
+            note = ""
 
-        transfer_amount = abs(transfer_total)  # Positive: what Amazon paid out
-
-        # Sum of all non-transfer transaction totals
-        if "totale_num" in transaction_rows.columns:
-            sum_transactions = _safe_sum(transaction_rows["totale_num"])
-        else:
-            sum_transactions = 0.0
-
-        # Difference: sum_transactions - transfer_amount should ≈ 0
-        # (the transactions generate the funds that are then transferred)
-        difference = sum_transactions - transfer_amount
-        st = "ok" if abs(difference) <= TOLERANCE else "warning"
+        # Period belongs to target month if any of its transaction dates fall in it
+        belongs = False
+        if not valid_dates.empty:
+            in_target = (valid_dates.dt.year == target_year) & (valid_dates.dt.month == target_month)
+            belongs = bool(in_target.any())
 
         periods.append(SettlementPeriod(
-            period_id=str(period_id),
+            period_id=pid,
             date_start=date_start.to_pydatetime() if date_start is not None else None,
             date_end=date_end.to_pydatetime() if date_end is not None else None,
             transfer_amount=transfer_amount,
-            sum_transactions=sum_transactions,
+            sum_transactions=sum_tx,
             difference=difference,
             status=st,
+            note=note,
             belongs_to_target_month=belongs,
-            transaction_count=len(transaction_rows),
-            transfer_row_count=len(transfer_rows),
+            transaction_count=tx_count,
+            transfer_row_count=transfer_row_count,
         ))
 
     # Sort by date_start
     periods.sort(key=lambda p: p.date_start or datetime.min)
     return periods
 
-
-def _period_belongs_to_month(
-    group: pd.DataFrame,
-    date_start: Optional[object],
-    date_end: Optional[object],
-    target_year: int,
-    target_month: int,
-) -> bool:
-    """
-    A period belongs to the target month if:
-    - It contains at least one transaction dated in the target month, OR
-    - Its transfer row is dated in the target month
-    """
-    if "data_ora_parsed" not in group.columns:
-        return False
-
-    try:
-        dates = pd.to_datetime(group["data_ora_parsed"], errors="coerce")
-        # Use .dt accessors (vectorised, NaT-safe) instead of .apply lambda
-        in_target = (dates.dt.year == target_year) & (dates.dt.month == target_month)
-        if bool(in_target.any()):
-            return True
-    except Exception:
-        pass
-
-    return False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -531,7 +577,9 @@ def _verify_ads(
         in_target = df["numero_pagamento"].astype(str).isin(target_period_ids)
 
         ads_rows = df[is_service_fee & is_ads & in_target]
-        if "altro_num" in ads_rows.columns:
+        if "totale_num" in ads_rows.columns:
+            ads_csv_amount = round(_safe_sum(ads_rows["totale_num"]), 2)
+        elif "altro_num" in ads_rows.columns:
             ads_csv_amount = round(_safe_sum(ads_rows["altro_num"]), 2)
 
     # Parse ADS PDFs

@@ -39,6 +39,7 @@ function statusBadge(status) {
     warning: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> ATTENZIONE',
     error:   '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> ERRORE',
     missing: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> N/D',
+    info:    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg> INFO',
   };
   return `<span class="badge ${status}">${icons[status] || status}</span>`;
 }
@@ -371,7 +372,7 @@ function periodRow(p, showBelongs) {
     ${showBelongs ? `<td class="center-col">${p.belongs_to_target_month
       ? '<span class="badge ok">Sì</span>'
       : '<span class="badge missing">No</span>'}</td>` : ""}
-    <td class="center-col">${statusBadge(p.status)}</td>
+    <td class="center-col">${statusBadge(p.status)}${p.note === "transfer_prev_month" ? '<br><small style="color:var(--text-muted);font-size:.7rem">Trasf. mese prec.</small>' : ""}</td>
   </tr>`;
 }
 
