@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Amazon Riconciliazione — Carica File</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="logo">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        <span>Amazon Reconciliation</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="upload-page">
+    <div class="page-title">
+      <h1>Riconciliazione Pagamenti Amazon Seller</h1>
+      <p class="subtitle">Carica i file di report per verificare che vendite, spese e trasferimenti siano allineati.</p>
+    </div>
+
+    <form id="reconcile-form" class="upload-form" novalidate>
+
+      <!-- Target month -->
+      <section class="form-section">
+        <h2 class="section-title">
+          <span class="step-badge">1</span>
+          Mese da Riconciliare
+        </h2>
+        <div class="month-picker-row">
+          <div class="field-group">
+            <label for="target-month">Mese</label>
+            <select id="target-month" name="target_month" required>
+              <option value="">— Seleziona —</option>
+              <option value="1">Gennaio</option><option value="2">Febbraio</option>
+              <option value="3">Marzo</option><option value="4">Aprile</option>
+              <option value="5">Maggio</option><option value="6">Giugno</option>
+              <option value="7">Luglio</option><option value="8">Agosto</option>
+              <option value="9">Settembre</option><option value="10">Ottobre</option>
+              <option value="11">Novembre</option><option value="12">Dicembre</option>
+            </select>
+          </div>
+          <div class="field-group">
+            <label for="target-year">Anno</label>
+            <input type="number" id="target-year" name="target_year"
+              min="2020" max="2030" placeholder="2026" required />
+          </div>
+        </div>
+      </section>
+
+      <!-- CSV files -->
+      <section class="form-section">
+        <h2 class="section-title">
+          <span class="step-badge">2</span>
+          CSV Transazioni Mensili
+          <span class="badge-required">Obbligatorio</span>
+        </h2>
+        <p class="field-hint">
+          Scarica da: <strong>Amazon Seller Central → Report → Pagamenti → Archivio Report</strong><br />
+          Carica i file CSV per il mese X-1, X e X+1 (nome esempio: <code>2026JanMonthlyTransaction.csv</code>)
+        </p>
+        <div class="dropzone" id="csv-dropzone" data-input="csv-input">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          <p>Trascina qui i file CSV o <label for="csv-input" class="link-label">sfoglia</label></p>
+          <span class="accepted-types">Accetta: .csv — file multipli supportati</span>
+          <input type="file" id="csv-input" name="csv_files" multiple accept=".csv" class="hidden-input" />
+        </div>
+        <ul class="file-list" id="csv-file-list"></ul>
+      </section>
+
+      <!-- PDF Summary -->
+      <section class="form-section">
+        <h2 class="section-title">
+          <span class="step-badge">3</span>
+          PDF Riepilogo Mensile
+          <span class="badge-optional">Opzionale</span>
+        </h2>
+        <p class="field-hint">
+          Scarica da: <strong>Amazon Seller Central → Report → Pagamenti → Archivio Report</strong><br />
+          Nome esempio: <code>2026JanMonthlySummary.pdf</code>
+        </p>
+        <div class="dropzone" id="pdf-summary-dropzone" data-input="pdf-summary-input">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          <p>Trascina qui i file PDF o <label for="pdf-summary-input" class="link-label">sfoglia</label></p>
+          <span class="accepted-types">Accetta: .pdf — file multipli supportati</span>
+          <input type="file" id="pdf-summary-input" name="pdf_summary_files" multiple accept=".pdf" class="hidden-input" />
+        </div>
+        <ul class="file-list" id="pdf-summary-file-list"></ul>
+      </section>
+
+      <!-- PDF ADS -->
+      <section class="form-section">
+        <h2 class="section-title">
+          <span class="step-badge">4</span>
+          PDF Fatture ADS (Amazon Advertising)
+          <span class="badge-optional">Opzionale</span>
+        </h2>
+        <p class="field-hint">
+          Scarica da: <strong>Amazon Seller Central → Amministrazione → Fatturazione → Estratto Conto</strong><br />
+          Nome esempio: <code>monthly_statement_2026_01_...pdf</code>
+        </p>
+        <div class="dropzone" id="pdf-ads-dropzone" data-input="pdf-ads-input">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          <p>Trascina qui i file PDF o <label for="pdf-ads-input" class="link-label">sfoglia</label></p>
+          <span class="accepted-types">Accetta: .pdf — file multipli supportati</span>
+          <input type="file" id="pdf-ads-input" name="pdf_ads_files" multiple accept=".pdf" class="hidden-input" />
+        </div>
+        <ul class="file-list" id="pdf-ads-file-list"></ul>
+      </section>
+
+      <!-- Submit -->
+      <div class="submit-row">
+        <button type="submit" class="btn-primary" id="submit-btn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          Avvia Riconciliazione
+        </button>
+      </div>
+
+      <!-- Loading -->
+      <div class="loading-overlay" id="loading-overlay" hidden>
+        <div class="spinner"></div>
+        <p>Analisi in corso…</p>
+      </div>
+
+    </form>
+
+    <!-- Error banner -->
+    <div class="error-banner" id="error-banner" hidden>
+      <strong>Errore:</strong> <span id="error-message"></span>
+    </div>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Amazon Riconciliazione — Dashboard</title>
+  <link rel="stylesheet" href="/style.css" />
+  <!-- DataTables -->
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="logo">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        <span>Amazon Reconciliation</span>
+      </div>
+      <a href="/" class="btn-secondary btn-sm">← Nuova Riconciliazione</a>
+    </div>
+  </header>
+
+  <!-- Loading state -->
+  <div id="dashboard-loading" class="full-loading">
+    <div class="spinner large"></div>
+    <p>Elaborazione in corso…</p>
+  </div>
+
+  <!-- Dashboard content (hidden until data loaded) -->
+  <main id="dashboard-content" class="dashboard-page" hidden>
+
+    <!-- ── Page header ──────────────────────────────────────────────────── -->
+    <div class="dash-header">
+      <div>
+        <h1 id="dash-title">Riconciliazione — —</h1>
+        <p class="dash-subtitle" id="dash-subtitle"></p>
+      </div>
+      <div id="overall-badge" class="overall-badge"></div>
+    </div>
+
+    <!-- ── Section 1: Synthesis ─────────────────────────────────────────── -->
+    <section class="dash-section" id="section-synthesis">
+      <h2 class="dash-section-title">1. Sintesi Mensile</h2>
+
+      <!-- 4 KPI cards -->
+      <div class="kpi-grid" id="kpi-grid">
+        <!-- injected by JS -->
+      </div>
+
+      <!-- PDF comparison table (shown only if PDF available) -->
+      <div id="pdf-comparison-wrapper" hidden>
+        <h3 class="sub-title">Confronto con PDF Riepilogo</h3>
+        <div class="table-wrapper">
+          <table class="data-table" id="pdf-comparison-table">
+            <thead>
+              <tr>
+                <th>Voce</th>
+                <th class="num-col">Da CSV</th>
+                <th class="num-col">Da PDF</th>
+                <th class="num-col">Differenza</th>
+                <th class="center-col">Status</th>
+              </tr>
+            </thead>
+            <tbody id="pdf-comparison-body">
+              <!-- injected by JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Section 2: Settlement Periods ────────────────────────────────── -->
+    <section class="dash-section" id="section-periods">
+      <h2 class="dash-section-title">2. Settlement Period</h2>
+      <p class="section-desc">Periodi che appartengono al mese target (contengono transazioni o il bonifico di quel mese).</p>
+      <div class="table-wrapper">
+        <table class="data-table" id="periods-table">
+          <thead>
+            <tr>
+              <th>N. Periodo</th>
+              <th>Data Inizio</th>
+              <th>Data Fine</th>
+              <th class="num-col">Trasferimento</th>
+              <th class="num-col">Somma Transazioni</th>
+              <th class="num-col">Differenza</th>
+              <th>Tx</th>
+              <th class="center-col">Status</th>
+            </tr>
+          </thead>
+          <tbody id="periods-body">
+            <!-- injected by JS -->
+          </tbody>
+        </table>
+      </div>
+
+      <!-- All periods toggle -->
+      <details class="collapsible" id="all-periods-details">
+        <summary>Mostra tutti i settlement period caricati (<span id="total-periods-count">0</span>)</summary>
+        <div class="table-wrapper" style="margin-top:1rem">
+          <table class="data-table" id="all-periods-table">
+            <thead>
+              <tr>
+                <th>N. Periodo</th>
+                <th>Data Inizio</th>
+                <th>Data Fine</th>
+                <th class="num-col">Trasferimento</th>
+                <th class="num-col">Somma Transazioni</th>
+                <th class="num-col">Differenza</th>
+                <th>Tx</th>
+                <th>Mese target</th>
+                <th class="center-col">Status</th>
+              </tr>
+            </thead>
+            <tbody id="all-periods-body">
+              <!-- injected by JS -->
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </section>
+
+    <!-- ── Section 3: ADS Verification ──────────────────────────────────── -->
+    <section class="dash-section" id="section-ads">
+      <h2 class="dash-section-title">3. Verifica Costi Pubblicità (ADS)</h2>
+      <div id="ads-content">
+        <!-- injected by JS -->
+      </div>
+    </section>
+
+    <!-- ── Section 4: Transaction Detail ────────────────────────────────── -->
+    <section class="dash-section" id="section-transactions">
+      <h2 class="dash-section-title">4. Dettaglio Transazioni</h2>
+
+      <!-- Filters -->
+      <div class="filter-bar">
+        <div class="filter-group">
+          <label for="filter-tipo">Tipo</label>
+          <select id="filter-tipo"><option value="">Tutti</option></select>
+        </div>
+        <div class="filter-group">
+          <label for="filter-period">Settlement Period</label>
+          <select id="filter-period"><option value="">Tutti</option></select>
+        </div>
+        <div class="filter-group">
+          <label for="filter-marketplace">Marketplace</label>
+          <select id="filter-marketplace"><option value="">Tutti</option></select>
+        </div>
+        <div class="filter-group">
+          <label for="filter-target-only">
+            <input type="checkbox" id="filter-target-only" />
+            Solo mese target
+          </label>
+        </div>
+        <button class="btn-secondary btn-sm" id="reset-filters">Reset filtri</button>
+      </div>
+
+      <div class="table-wrapper">
+        <table id="transactions-table" class="display compact" style="width:100%">
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>Tipo</th>
+              <th>N. Ordine</th>
+              <th>SKU</th>
+              <th>Descrizione</th>
+              <th>Marketplace</th>
+              <th>Periodo</th>
+              <th class="num-col">Vendite</th>
+              <th class="num-col">Commissioni</th>
+              <th class="num-col">Costi FBA</th>
+              <th class="num-col">Altro</th>
+              <th class="num-col">Totale</th>
+            </tr>
+          </thead>
+          <tbody id="transactions-body">
+            <!-- injected by JS -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── Section 5: Anomalies ──────────────────────────────────────────── -->
+    <section class="dash-section" id="section-anomalies" hidden>
+      <h2 class="dash-section-title anomaly-title">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        5. Anomalie Rilevate
+      </h2>
+      <ul class="anomaly-list" id="anomaly-list">
+        <!-- injected by JS -->
+      </ul>
+    </section>
+
+  </main>
+
+  <!-- jQuery + DataTables -->
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

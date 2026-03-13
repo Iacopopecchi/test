@@ -1,0 +1,19 @@
+[build]
+  publish   = "static"
+  functions = "netlify/functions"
+
+[build.environment]
+  PYTHON_VERSION = "3.11"
+
+# Proxy /api/* → Netlify Function (preserves original path for Mangum → FastAPI)
+[[redirects]]
+  from   = "/api/*"
+  to     = "/.netlify/functions/api/:splat"
+  status = 200
+  force  = true
+
+# SPA fallback: serve index.html for unmatched paths (dashboard route)
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200
