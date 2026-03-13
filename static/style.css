@@ -5,6 +5,9 @@
 /* ── Reset & Variables ────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Ensure [hidden] always wins over display:flex/block rules */
+[hidden] { display: none !important; }
+
 :root {
   --bg: #f5f6fa;
   --surface: #ffffff;
