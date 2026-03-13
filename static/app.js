@@ -4,6 +4,11 @@
 
 "use strict";
 
+// Module-level state (must be declared before any IIFE runs)
+let dtInstance = null;
+let allTransactions = [];
+let targetPeriodIds = new Set();
+
 // ── Utilities ──────────────────────────────────────────────────────────────
 
 /**
@@ -371,10 +376,6 @@ function periodRow(p, showBelongs) {
 }
 
 // ── Transaction table with DataTables ──────────────────────────────────────
-
-let dtInstance = null;
-let allTransactions = [];
-let targetPeriodIds = new Set();
 
 function renderTransactions(transactions, targetPeriods) {
   allTransactions = transactions;
