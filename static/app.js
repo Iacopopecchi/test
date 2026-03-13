@@ -215,9 +215,19 @@ function renderFileList(input, list) {
   }
 
   // Render dashboard
-  renderDashboard(data);
-  loading.hidden = true;
-  dashContent.hidden = false;
+  try {
+    renderDashboard(data);
+    loading.hidden = true;
+    dashContent.hidden = false;
+  } catch (err) {
+    loading.innerHTML = `
+      <div style="text-align:center;max-width:600px;padding:2rem">
+        <p style="color:var(--err);font-size:1rem;font-weight:600;margin-bottom:.5rem">Errore nel rendering della dashboard</p>
+        <pre style="background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;padding:1rem;text-align:left;font-size:.78rem;overflow:auto;white-space:pre-wrap">${escHtml(err.stack || err.message || String(err))}</pre>
+        <a href="/" style="display:inline-block;margin-top:1rem;color:var(--indigo)">← Torna all'upload</a>
+      </div>`;
+    console.error("Dashboard render error:", err);
+  }
 })();
 
 function renderDashboard(data) {
