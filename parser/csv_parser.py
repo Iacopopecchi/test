@@ -90,10 +90,11 @@ def parse_csv_file(file_content: bytes, filename: str) -> pd.DataFrame:
         keep_default_na=False,
     )
 
-    # Strip whitespace from column names
-    df.columns = [c.strip().strip('"') for c in df.columns]
+    # Strip whitespace, quotes, and trailing colons from column names
+    df.columns = [c.strip().strip('"').rstrip(':').strip() for c in df.columns]
 
     # Rename columns to internal normalized names
+    # Multiple variants handle different Amazon locale/version formats
     column_map = {
         "Data/Ora": "data_ora",
         "Numero pagamento": "numero_pagamento",
@@ -106,13 +107,23 @@ def parse_csv_file(file_content: bytes, filename: str) -> pd.DataFrame:
         "Gestione": "gestione",
         "Vendite": "vendite",
         "imposta sulle vendite dei prodotti": "imposta_vendite",
+        "Imposta sulle vendite dei prodotti": "imposta_vendite",
         "Commissioni di vendita": "commissioni_vendita",
         "Costi del servizio Logistica di Amazon": "costi_fba",
         "Altri costi relativi alle transazioni": "altri_costi_transazione",
         "Altro": "altro",
         "totale": "totale",
+        "Totale": "totale",
     }
-    df = df.rename(columns={k: v for k, v in column_map.items() if k in df.columns})
+    # Case-insensitive fallback: build a lowercase lookup for any remaining unmapped cols
+    lower_map = {k.lower(): v for k, v in column_map.items()}
+    rename_dict = {}
+    for col in df.columns:
+        if col in column_map:
+            rename_dict[col] = column_map[col]
+        elif col.lower() in lower_map and col not in rename_dict:
+            rename_dict[col] = lower_map[col.lower()]
+    df = df.rename(columns=rename_dict)
 
     # Parse dates
     if "data_ora" in df.columns:
