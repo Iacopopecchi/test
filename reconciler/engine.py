@@ -299,25 +299,14 @@ def _period_belongs_to_month(
     if "data_ora_parsed" not in group.columns:
         return False
 
-    dates = pd.to_datetime(group["data_ora_parsed"], errors="coerce")
-    in_target = dates.apply(
-        lambda d: d is not None and not pd.isna(d)
-        and d.year == target_year and d.month == target_month
-    )
-
-    if in_target.any():
-        return True
-
-    # Also check if the transfer itself is in the target month
-    if "tipo" in group.columns:
-        is_transfer = group["tipo"].str.strip().str.lower() == "trasferimento"
-        transfer_dates = dates[is_transfer]
-        transfer_in_target = transfer_dates.apply(
-            lambda d: d is not None and not pd.isna(d)
-            and d.year == target_year and d.month == target_month
-        )
-        if transfer_in_target.any():
+    try:
+        dates = pd.to_datetime(group["data_ora_parsed"], errors="coerce")
+        # Use .dt accessors (vectorised, NaT-safe) instead of .apply lambda
+        in_target = (dates.dt.year == target_year) & (dates.dt.month == target_month)
+        if bool(in_target.any()):
             return True
+    except Exception:
+        pass
 
     return False
 
