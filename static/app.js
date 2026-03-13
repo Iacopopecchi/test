@@ -105,7 +105,7 @@ function statusBadge(status) {
       const data = await resp.json();
       // Store result in sessionStorage and redirect to dashboard
       sessionStorage.setItem("reconciliation_result", JSON.stringify(data));
-      window.location.href = "/dashboard";
+      window.location.href = "/dashboard.html";
     } catch (err) {
       overlay.hidden = true;
       submitBtn.disabled = false;

@@ -12,7 +12,7 @@
   status = 200
   force  = true
 
-# SPA fallback: serve index.html for unmatched paths (dashboard route)
+# Fallback: any unmatched path → upload page
 [[redirects]]
   from   = "/*"
   to     = "/index.html"
