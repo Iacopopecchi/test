@@ -393,7 +393,48 @@ body {
 .section-desc { font-size: .85rem; color: var(--text-secondary); margin-bottom: 1rem; }
 .sub-title { font-size: .95rem; font-weight: 600; margin: 1.5rem 0 .75rem; }
 
-/* KPI grid */
+/* ── 4 Check cards ──────────────────────────────────────────────────────── */
+.checks-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  margin-bottom: .5rem;
+}
+@media (max-width: 900px) {
+  .checks-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 480px) {
+  .checks-grid { grid-template-columns: 1fr; }
+}
+.check-card {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+}
+.check-card--ok      { border-color: var(--ok-border);   background: var(--ok-bg); }
+.check-card--warning { border-color: var(--warn-border);  background: var(--warn-bg); }
+.check-card--error   { border-color: var(--err-border);   background: var(--err-bg); }
+.check-card--missing { border-color: var(--miss-border);  background: var(--miss-bg); }
+.check-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: .25rem;
+}
+.check-card-label { font-size: .78rem; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .05em; }
+.check-card-icon  { font-size: 1.2rem; }
+.check-card-row   { display: flex; justify-content: space-between; align-items: baseline; font-size: .88rem; gap: .5rem; }
+.check-card-key   { color: var(--text-muted); font-size: .78rem; flex-shrink: 0; }
+.check-card-val   { font-family: var(--mono); font-weight: 600; text-align: right; }
+.check-card-delta .check-card-val { font-size: .82rem; }
+.check-transfers  { margin-top: .4rem; border-top: 1px solid rgba(0,0,0,.08); padding-top: .4rem; display: flex; flex-direction: column; gap: .15rem; }
+.check-transfer-row { display: flex; justify-content: space-between; font-size: .78rem; color: var(--text-secondary); }
+
+/* KPI grid (kept for backwards compat) */
 .kpi-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));

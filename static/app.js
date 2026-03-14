@@ -245,95 +245,102 @@ function renderDashboard(data) {
   document.title = title + " — Amazon Reconciliation";
   document.getElementById("dash-title").textContent = title;
 
-  const periodCount = (data.settlement_periods_target || []).length;
+  const checks = data.checks || [];
+  const allPass = checks.length > 0 && checks.every(c => c.status === "ok");
+  const hasChecks = checks.length > 0;
   document.getElementById("dash-subtitle").textContent =
-    `${periodCount} settlement period nel mese target · ${(data.transactions || []).length} transazioni totali`;
+    `${(data.transactions || []).length} transazioni · ${(data.settlement_periods || []).length} settlement period`;
 
   // Overall badge
   const badge = document.getElementById("overall-badge");
-  const statusLabels = { ok: "✅ Tutto quadra", warning: "⚠️ Attenzione", error: "❌ Errore" };
-  badge.className = "overall-badge " + data.overall_status;
-  badge.textContent = statusLabels[data.overall_status] || data.overall_status;
+  if (hasChecks) {
+    const statusLabels = { ok: "✅ Tutto quadra", warning: "⚠️ Attenzione", error: "❌ Errore" };
+    badge.className = "overall-badge " + data.overall_status;
+    badge.textContent = statusLabels[data.overall_status] || data.overall_status;
+  } else {
+    badge.hidden = true;
+  }
 
-  // ── Section 1: KPI cards ──────────────────────────────────────────────────
-  const kpiGrid = document.getElementById("kpi-grid");
-  const totals = data.totals || {};
-  const kpis = [
-    { label: "Ricavi totali", value: totals.revenues, formatted: totals.revenues_fmt },
-    { label: "Spese totali",  value: totals.expenses,  formatted: totals.expenses_fmt },
-    { label: "Imposte nette", value: totals.taxes,     formatted: totals.taxes_fmt },
-    { label: "Trasferimenti", value: totals.transfers,  formatted: totals.transfers_fmt },
-    { label: "Saldo netto",   value: totals.net_balance, formatted: totals.net_balance_fmt },
-    { label: "Variazione saldo Amazon", value: totals.amazon_balance_variation, formatted: totals.amazon_balance_variation_fmt },
+  // ── Section 1: 4 Check Cards ──────────────────────────────────────────────
+  const checksGrid = document.getElementById("checks-grid");
+
+  // Expected labels in display order
+  const checkDefs = [
+    { label: "Ricavi",    key: "Ricavi" },
+    { label: "Spese",     key: "Spese" },
+    { label: "Pagamenti", key: "Pagamenti" },
+    { label: "ADS",       key: "ADS" },
   ];
-  kpiGrid.innerHTML = kpis.map(k => `
-    <div class="kpi-card">
-      <span class="kpi-label">${escHtml(k.label)}</span>
-      <span class="kpi-value ${numClass(k.value)}">${k.formatted || fmtEur(k.value)}</span>
-    </div>`).join("");
 
-  // ── Section 1: PDF Summary comparison ────────────────────────────────────
-  if (data.pdf_summary_available && data.summary_comparisons && data.summary_comparisons.length) {
-    document.getElementById("pdf-comparison-wrapper").hidden = false;
-    const tbody = document.getElementById("pdf-comparison-body");
-    tbody.innerHTML = data.summary_comparisons.map(c => `
-      <tr>
-        <td>${escHtml(c.label)}</td>
-        <td class="num-col">${c.csv_value_fmt || fmtEur(c.csv_value)}</td>
-        <td class="num-col">${c.pdf_value !== null ? (c.pdf_value_fmt || fmtEur(c.pdf_value)) : "<em>N/D</em>"}</td>
-        <td class="num-col">${c.difference_fmt || fmtEur(c.difference)}</td>
-        <td class="center-col">${statusBadge(c.status)}</td>
-      </tr>`).join("");
-  }
+  const checksByLabel = {};
+  for (const c of checks) checksByLabel[c.label] = c;
 
-  // ── Section 2: Settlement periods ────────────────────────────────────────
-  const targetPeriods = data.settlement_periods_target || [];
-  const allPeriods = data.settlement_periods || [];
+  // Transfer details for Pagamenti card
+  const transferDetails = data.transfer_details || [];
 
-  document.getElementById("periods-body").innerHTML = targetPeriods.map(p => periodRow(p, false)).join("") ||
-    '<tr><td colspan="8" style="text-align:center;color:var(--text-muted)">Nessun periodo trovato per il mese target</td></tr>';
+  checksGrid.innerHTML = checkDefs.map(def => {
+    const c = checksByLabel[def.key];
+    const noPdf = !c || c.pdf_value === null || c.pdf_value === undefined;
+    const st = c ? c.status : "missing";
+    const icon = st === "ok" ? "✅" : st === "warning" ? "⚠️" : st === "missing" ? "—" : "❌";
+    const csvFmt = c ? (c.csv_value_fmt || fmtEur(c.csv_value)) : "N/D";
+    const pdfFmt = noPdf ? "<em style='color:var(--text-muted)'>PDF non caricato</em>"
+                         : (c.pdf_value_fmt || fmtEur(c.pdf_value));
+    const diffFmt = (!c || c.difference === null || c.difference === undefined)
+                  ? "<em style='color:var(--text-muted)'>—</em>"
+                  : (c.difference_fmt || fmtEur(c.difference));
 
-  document.getElementById("total-periods-count").textContent = allPeriods.length;
-  document.getElementById("all-periods-body").innerHTML = allPeriods.map(p => periodRow(p, true)).join("") || "";
-
-  // ── Section 3: ADS verification ───────────────────────────────────────────
-  const adsContent = document.getElementById("ads-content");
-  if (data.ads_verification) {
-    const ads = data.ads_verification;
-    adsContent.innerHTML = `
-      <div class="ads-card">
-        <div class="ads-row">
-          <div class="ads-item">
-            <span class="ads-item-label">Costo ADS (CSV)</span>
-            <span class="ads-item-value ${numClass(ads.csv_amount)}">${ads.csv_amount_fmt || fmtEur(ads.csv_amount)}</span>
-          </div>
-          <div class="ads-item">
-            <span class="ads-item-label">Totale Fattura ADS (EUR)</span>
-            <span class="ads-item-value">${ads.invoice_amount_fmt || fmtEur(ads.invoice_amount)}</span>
-          </div>
-          <div class="ads-item">
-            <span class="ads-item-label">Differenza</span>
-            <span class="ads-item-value">${ads.difference_fmt || fmtEur(ads.difference)}</span>
-          </div>
-          <div class="ads-item">
-            <span class="ads-item-label">Status</span>
-            ${statusBadge(ads.status)}
-          </div>
-        </div>
-        ${ads.invoice_ids && ads.invoice_ids.length ? `
-        <div style="font-size:.82rem;color:var(--text-secondary)">
-          Fatture: ${ads.invoice_ids.map(id => `<code style="font-family:var(--mono)">${escHtml(id)}</code>`).join(" · ")}
-        </div>` : ""}
+    // Transfer breakdown under Pagamenti
+    let extraHtml = "";
+    if (def.key === "Pagamenti" && transferDetails.length > 0) {
+      extraHtml = `<div class="check-transfers">
+        ${transferDetails.map(t =>
+          `<div class="check-transfer-row">
+            <span>${t.date || "—"}</span>
+            <span style="color:var(--err)">${t.amount_fmt || fmtEur(t.amount)}</span>
+          </div>`
+        ).join("")}
       </div>`;
-  } else if (!data.ads_pdf_available) {
-    adsContent.innerHTML = `<p style="color:var(--text-muted);font-size:.88rem">Nessun file PDF ADS caricato. Il confronto con le fatture pubblicitarie non è disponibile.</p>`;
-  }
+    }
 
-  // ── Section 4: Transactions ───────────────────────────────────────────────
+    // ADS invoice IDs
+    if (def.key === "ADS" && data.ads_verification && data.ads_verification.invoice_ids && data.ads_verification.invoice_ids.length) {
+      extraHtml = `<div class="check-transfers" style="font-size:.75rem;color:var(--text-muted);margin-top:.5rem">
+        ${data.ads_verification.invoice_ids.map(id => `<div>${escHtml(id)}</div>`).join("")}
+      </div>`;
+    }
+
+    return `<div class="check-card check-card--${st}">
+      <div class="check-card-header">
+        <span class="check-card-label">${escHtml(def.label)}</span>
+        <span class="check-card-icon">${icon}</span>
+      </div>
+      <div class="check-card-row">
+        <span class="check-card-key">CSV</span>
+        <span class="check-card-val">${csvFmt}</span>
+      </div>
+      <div class="check-card-row">
+        <span class="check-card-key">PDF</span>
+        <span class="check-card-val">${pdfFmt}</span>
+      </div>
+      <div class="check-card-row check-card-delta">
+        <span class="check-card-key">Δ</span>
+        <span class="check-card-val">${diffFmt}</span>
+      </div>
+      ${extraHtml}
+    </div>`;
+  }).join("");
+
+  // ── Section 2: Settlement periods (informational) ─────────────────────────
+  const allPeriods = data.settlement_periods || [];
+  document.getElementById("periods-body").innerHTML = allPeriods.map(p => settlementRow(p)).join("") ||
+    '<tr><td colspan="7" style="text-align:center;color:var(--text-muted)">Nessun periodo trovato</td></tr>';
+
+  // ── Section 3: Transactions ───────────────────────────────────────────────
   const transactions = data.transactions || [];
   renderTransactions(transactions, data.settlement_periods_target || []);
 
-  // ── Section 5: Anomalies ─────────────────────────────────────────────────
+  // ── Section 4: Anomalies ──────────────────────────────────────────────────
   const allIssues = [...(data.errors || []).map(e => ({ msg: e, isError: true })),
                      ...(data.warnings || []).map(w => ({ msg: w, isError: false }))];
 
@@ -352,27 +359,30 @@ function renderDashboard(data) {
   }
 }
 
-function periodRow(p, showBelongs) {
-  const diff = p.difference;
-  const diffFmt = diff !== null && diff !== undefined
-    ? (diff >= 0 ? "+" : "") + diff.toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €"
-    : "N/D";
+function settlementRow(p) {
   const sumFmt = p.sum_transactions !== null && p.sum_transactions !== undefined
-    ? (p.sum_transactions >= 0 ? "+" : "") + Math.abs(p.sum_transactions).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €"
+    ? (p.sum_transactions >= 0 ? "+" : "") +
+      p.sum_transactions.toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €"
     : "N/D";
 
+  let transferCell;
+  if (p.transfer_amount && p.transfer_amount !== 0) {
+    const tFmt = p.transfer_amount.toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    transferCell = `<span style="color:var(--err)">${tFmt} €</span>`
+      + (p.transfer_date ? `<br><small style="color:var(--text-muted)">${p.transfer_date}</small>` : "");
+  } else {
+    transferCell = `<span style="color:var(--text-muted)">—</span>`;
+  }
+
+  const noteStyle = p.note ? "color:var(--text-secondary);font-size:.8rem" : "";
   return `<tr>
     <td><code style="font-family:var(--mono);font-size:.8rem">${escHtml(p.period_id)}</code></td>
     <td>${p.date_start || "—"}</td>
     <td>${p.date_end || "—"}</td>
-    <td class="num-col">${fmtEurAbs(p.transfer_amount)}</td>
-    <td class="num-col">${sumFmt}</td>
-    <td class="num-col" style="color:${Math.abs(diff || 0) <= 0.05 ? 'var(--ok)' : 'var(--warn)'}">${diffFmt}</td>
     <td class="num-col">${p.transaction_count ?? "—"}</td>
-    ${showBelongs ? `<td class="center-col">${p.belongs_to_target_month
-      ? '<span class="badge ok">Sì</span>'
-      : '<span class="badge missing">No</span>'}</td>` : ""}
-    <td class="center-col">${statusBadge(p.status)}${p.note === "transfer_prev_month" ? '<br><small style="color:var(--text-muted);font-size:.7rem">Trasf. mese prec.</small>' : ""}</td>
+    <td class="num-col">${sumFmt}</td>
+    <td class="num-col">${transferCell}</td>
+    <td style="${noteStyle}">${escHtml(p.note || "")}</td>
   </tr>`;
 }
 

@@ -25,6 +25,9 @@ from reconciler.engine import (
     reconcile,
 )
 
+# Suppress unused-import warnings — these are re-exported for type-checking tools
+_ = (SettlementPeriod, AdsVerification)
+
 app = FastAPI(
     title="Amazon Reconciliation Dashboard",
     description="Riconciliazione pagamenti Amazon Seller Central",
@@ -63,17 +66,14 @@ def _serialize_period(p: SettlementPeriod) -> dict:
         "period_id": p.period_id,
         "date_start": _dt_str(p.date_start),
         "date_end": _dt_str(p.date_end),
-        "transfer_amount": p.transfer_amount,
-        "transfer_amount_fmt": _fmt_eur(-p.transfer_amount),
         "sum_transactions": p.sum_transactions,
         "sum_transactions_fmt": _fmt_eur(p.sum_transactions),
-        "difference": p.difference,
-        "difference_fmt": _fmt_eur(p.difference),
-        "status": p.status,
+        "transaction_count": p.transaction_count,
+        "transfer_amount": p.transfer_amount,
+        "transfer_amount_fmt": _fmt_eur(p.transfer_amount) if p.transfer_amount != 0.0 else None,
+        "transfer_date": _dt_str(p.transfer_date),
         "note": p.note,
         "belongs_to_target_month": p.belongs_to_target_month,
-        "transaction_count": p.transaction_count,
-        "transfer_row_count": p.transfer_row_count,
     }
 
 
@@ -149,34 +149,30 @@ def _build_response(result: ReconciliationResult) -> dict:
         "errors": result.errors,
         "warnings": result.warnings,
 
-        # Step 3: Monthly totals
-        "totals": {
-            "revenues": result.total_revenues,
-            "revenues_fmt": _fmt_eur(result.total_revenues),
-            "expenses": result.total_expenses,
-            "expenses_fmt": _fmt_eur(result.total_expenses),
-            "taxes": result.total_taxes,
-            "taxes_fmt": _fmt_eur(result.total_taxes),
-            "transfers": result.total_transfers,
-            "transfers_fmt": _fmt_eur(result.total_transfers),
-            "net_balance": result.net_balance,
-            "net_balance_fmt": _fmt_eur(result.net_balance),
-            "amazon_balance_variation": result.amazon_balance_variation,
-            "amazon_balance_variation_fmt": _fmt_eur(result.amazon_balance_variation),
-        },
+        # 4 checks (Ricavi, Spese, Pagamenti, ADS)
+        "checks": [_serialize_comparison(c) for c in result.checks],
 
-        # Step 1-2: Settlement periods
+        # Individual transfer details (for Pagamenti card)
+        "transfer_details": [
+            {
+                "date": _dt_str(d["date"]) if d.get("date") else None,
+                "amount": d["amount"],
+                "amount_fmt": _fmt_eur(d["amount"]),
+            }
+            for d in result.transfer_details
+        ],
+
+        # Settlement periods (informational only)
         "settlement_periods": [_serialize_period(p) for p in result.settlement_periods],
         "settlement_periods_target": [
             _serialize_period(p) for p in result.settlement_periods
             if p.belongs_to_target_month
         ],
 
-        # Step 4: PDF Summary comparison
+        # PDF Summary availability
         "pdf_summary_available": result.pdf_summary_available,
-        "summary_comparisons": [_serialize_comparison(c) for c in result.summary_comparisons],
 
-        # Step 5: ADS
+        # ADS details (invoice IDs)
         "ads_pdf_available": result.ads_pdf_available,
         "ads_verification": _serialize_ads(result.ads_verification),
 

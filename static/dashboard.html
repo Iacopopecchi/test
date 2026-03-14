@@ -37,53 +37,28 @@
       <div id="overall-badge" class="overall-badge"></div>
     </div>
 
-    <!-- ── Section 1: Synthesis ─────────────────────────────────────────── -->
-    <section class="dash-section" id="section-synthesis">
-      <h2 class="dash-section-title">1. Sintesi Mensile</h2>
-
-      <!-- 4 KPI cards -->
-      <div class="kpi-grid" id="kpi-grid">
-        <!-- injected by JS -->
-      </div>
-
-      <!-- PDF comparison table (shown only if PDF available) -->
-      <div id="pdf-comparison-wrapper" hidden>
-        <h3 class="sub-title">Confronto con PDF Riepilogo</h3>
-        <div class="table-wrapper">
-          <table class="data-table" id="pdf-comparison-table">
-            <thead>
-              <tr>
-                <th>Voce</th>
-                <th class="num-col">Da CSV</th>
-                <th class="num-col">Da PDF</th>
-                <th class="num-col">Differenza</th>
-                <th class="center-col">Status</th>
-              </tr>
-            </thead>
-            <tbody id="pdf-comparison-body">
-              <!-- injected by JS -->
-            </tbody>
-          </table>
-        </div>
+    <!-- ── Section 1: 4 Check Cards ──────────────────────────────────────── -->
+    <section class="dash-section" id="section-checks">
+      <div class="checks-grid" id="checks-grid">
+        <!-- injected by JS: 4 cards (Ricavi, Spese, Pagamenti, ADS) -->
       </div>
     </section>
 
-    <!-- ── Section 2: Settlement Periods ────────────────────────────────── -->
+    <!-- ── Section 2: Settlement Periods (informational) ────────────────── -->
     <section class="dash-section" id="section-periods">
       <h2 class="dash-section-title">2. Settlement Period</h2>
-      <p class="section-desc">Periodi che appartengono al mese target (contengono transazioni o il bonifico di quel mese).</p>
+      <p class="section-desc">Dettaglio dei periodi presenti nel CSV. Nessun check pass/fail — Amazon registra il trasferimento nel periodo successivo a quello che salda.</p>
       <div class="table-wrapper">
         <table class="data-table" id="periods-table">
           <thead>
             <tr>
               <th>N. Periodo</th>
-              <th>Data Inizio</th>
-              <th>Data Fine</th>
-              <th class="num-col">Trasferimento</th>
+              <th>Prima Transazione</th>
+              <th>Ultima Transazione</th>
+              <th class="num-col"># Tx</th>
               <th class="num-col">Somma Transazioni</th>
-              <th class="num-col">Differenza</th>
-              <th>Tx</th>
-              <th class="center-col">Status</th>
+              <th class="num-col">Trasferimento Ricevuto</th>
+              <th>Note</th>
             </tr>
           </thead>
           <tbody id="periods-body">
@@ -91,44 +66,11 @@
           </tbody>
         </table>
       </div>
-
-      <!-- All periods toggle -->
-      <details class="collapsible" id="all-periods-details">
-        <summary>Mostra tutti i settlement period caricati (<span id="total-periods-count">0</span>)</summary>
-        <div class="table-wrapper" style="margin-top:1rem">
-          <table class="data-table" id="all-periods-table">
-            <thead>
-              <tr>
-                <th>N. Periodo</th>
-                <th>Data Inizio</th>
-                <th>Data Fine</th>
-                <th class="num-col">Trasferimento</th>
-                <th class="num-col">Somma Transazioni</th>
-                <th class="num-col">Differenza</th>
-                <th>Tx</th>
-                <th>Mese target</th>
-                <th class="center-col">Status</th>
-              </tr>
-            </thead>
-            <tbody id="all-periods-body">
-              <!-- injected by JS -->
-            </tbody>
-          </table>
-        </div>
-      </details>
     </section>
 
-    <!-- ── Section 3: ADS Verification ──────────────────────────────────── -->
-    <section class="dash-section" id="section-ads">
-      <h2 class="dash-section-title">3. Verifica Costi Pubblicità (ADS)</h2>
-      <div id="ads-content">
-        <!-- injected by JS -->
-      </div>
-    </section>
-
-    <!-- ── Section 4: Transaction Detail ────────────────────────────────── -->
+    <!-- ── Section 3: Transaction Detail ────────────────────────────────── -->
     <section class="dash-section" id="section-transactions">
-      <h2 class="dash-section-title">4. Dettaglio Transazioni</h2>
+      <h2 class="dash-section-title">3. Dettaglio Transazioni</h2>
 
       <!-- Filters -->
       <div class="filter-bar">
@@ -178,11 +120,11 @@
       </div>
     </section>
 
-    <!-- ── Section 5: Anomalies ──────────────────────────────────────────── -->
+    <!-- ── Section 4: Anomalies ──────────────────────────────────────────── -->
     <section class="dash-section" id="section-anomalies" hidden>
       <h2 class="dash-section-title anomaly-title">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-        5. Anomalie Rilevate
+        4. Anomalie Rilevate
       </h2>
       <ul class="anomaly-list" id="anomaly-list">
         <!-- injected by JS -->
