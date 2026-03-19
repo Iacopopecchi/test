@@ -338,68 +338,85 @@ async function parsePdfSummary(buf) {
   const lines  = text.split('\n');
   const result = {};
 
-  // ── Find the "Sintesi" section of the Amazon Italy "Rendiconto pagamenti" PDF.
-  // The table has exactly 4 rows (pdfParse may put each row on one line or spread to 2):
+  // Amazon Italy "Rendiconto pagamenti" — Sintesi section has 4 rows:
   //   Ricavi        Vendite, accrediti e rimborsi          1.548,61
   //   Spese         Costi inclusivi di abbonamento ...    -1.381,55
   //   Imposte       Imposte nette da versare                 377,91
   //   Trasferimenti Versamenti e prelievi                   -177,87
   //
-  // Strategy: locate the "Sintesi" header (first 30 lines), then scan the next
-  // 60 lines for rows whose trimmed text starts with one of the 4 keywords.
-  // Take the LAST Italian-format number (NNN.NNN,NN) on that line or the next 2.
+  // pdfParse can linearise the PDF in many ways (all on one line, columns
+  // separated, numbers far from labels). We try multiple strategies in order.
 
-  let startLine = 0;
-  for (let i = 0; i < Math.min(lines.length, 30); i++) {
-    if (/sintesi/i.test(lines[i])) { startLine = i; break; }
-  }
-  const window = lines.slice(startLine, startLine + 60);
+  // ── Shared helpers ─────────────────────────────────────────────────────────
 
-  function lastItNum(line) {
-    const nums = line.match(/[+-]?\s*[\d]+(?:\.[\d]{3})*,\d{2}/g);
-    if (!nums || !nums.length) return null;
-    return parseItNum(nums[nums.length - 1].replace(/\s/g, ''));
-  }
-
-  const searchConf = [
-    { key: 'ricavi',        pats: [/^ricavi\b/i,        /^vendite.*accrediti/i]        },
-    { key: 'spese',         pats: [/^spese\b/i,         /^costi.*inclusivi/i]          },
-    { key: 'imposte',       pats: [/^imposte\b/i,       /^imposte.*nette/i]            },
-    { key: 'trasferimenti', pats: [/^trasferimenti\b/i, /^versamenti.*prelievi/i]      },
-  ];
-
-  for (const { key, pats } of searchConf) {
-    for (let li = 0; li < window.length; li++) {
-      if (!pats.some(p => p.test(window[li].trim()))) continue;
-      // Look for a number on this line or the next 2
-      for (let j = li; j < Math.min(li + 3, window.length); j++) {
-        const val = lastItNum(window[j]);
-        if (val !== null) { result[key] = val; break; }
-      }
-      if (key in result) break;
+  // Extract the last Italian monetary number from a string (NNN.NNN,NN or NNN,NN)
+  function lastNum(s) {
+    const nums = s.match(/[+-]?\s*\d[\d.]*,\d{2}/g);
+    if (!nums) return null;
+    for (let k = nums.length - 1; k >= 0; k--) {
+      const val = parseItNum(nums[k].replace(/\s/g, ''));
+      if (val !== null && !isNaN(val)) return val;
     }
+    return null;
   }
 
-  // ── Fallback: keyword scan across the full document (older PDF layouts).
-  const fallbackConf = [
-    { key: 'ricavi',        pats: [/ricavi.*vendite/i, /vendite.*accrediti.*rimborsi/i], skipNeg: true },
-    { key: 'spese',         pats: [/spese totali/i, /totale.*spese/i, /costi.*inclusivi/i] },
-    { key: 'imposte',       pats: [/imposte.*nette/i] },
-    { key: 'trasferimenti', pats: [/versamenti.*prelievi/i, /trasferimento.*bancario/i,
-                                   /bonifico.*bancario/i] },
+  // Search `searchLines` for first line matching any of `pats` (case-insensitive).
+  // When found, look up to `ahead` lines ahead for a number. Skip `antiPats` lines.
+  function findKeyValue(searchLines, pats, { antiPats = [], ahead = 10 } = {}) {
+    for (let li = 0; li < searchLines.length; li++) {
+      const line = searchLines[li];
+      if (!pats.some(p => p.test(line))) continue;
+      if (antiPats.some(p => p.test(line))) continue;
+      for (let j = li; j < Math.min(li + ahead, searchLines.length); j++) {
+        const val = lastNum(searchLines[j]);
+        if (val !== null) return val;
+      }
+    }
+    return null;
+  }
+
+  // ── Strategy 1: Sintesi section (keyword anywhere in line, lookahead 10) ──
+
+  // Find Sintesi section boundaries
+  let sintesiIdx = -1, dettaglioIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (sintesiIdx === -1 && /sintesi/i.test(lines[i]))     sintesiIdx   = i;
+    if (sintesiIdx !== -1 && /dettaglio/i.test(lines[i]))   { dettaglioIdx = i; break; }
+  }
+  const sStart = sintesiIdx >= 0 ? sintesiIdx : 0;
+  const sEnd   = dettaglioIdx  > 0 ? dettaglioIdx : Math.min(sStart + 80, lines.length);
+  const wLines = lines.slice(sStart, sEnd);
+
+  const keyConf = [
+    { key: 'ricavi',        pats: [/ricavi/i],                   antiPats: [/ricavi.*programm/i] },
+    { key: 'spese',         pats: [/\bspese\b/i, /costi.*inclusiv/i] },
+    { key: 'imposte',       pats: [/imposte/i] },
+    { key: 'trasferimenti', pats: [/trasferiment/i, /versamenti.*preliev/i] },
   ];
-  for (const { key, pats, skipNeg } of fallbackConf) {
+
+  for (const { key, pats, antiPats } of keyConf) {
+    const val = findKeyValue(wLines, pats, { antiPats, ahead: 10 });
+    if (val !== null) result[key] = val;
+  }
+
+  // ── Strategy 2: Full document scan (for keys not found in Sintesi window) ──
+
+  const fullKeyConf = [
+    { key: 'ricavi',        pats: [/ricavi.*vendite/i, /vendite.*accrediti.*rimborsi/i], antiPats: [/programm/i], skipNeg: true },
+    { key: 'spese',         pats: [/spese.*totali/i, /totale.*spese/i, /totale.*addebiti/i, /costi.*inclusiv/i] },
+    { key: 'imposte',       pats: [/imposte.*nette/i, /imposte.*versare/i] },
+    { key: 'trasferimenti', pats: [/versamenti.*preliev/i, /trasferimento.*bancario/i, /bonifico.*bancario/i] },
+  ];
+
+  for (const { key, pats, antiPats = [], skipNeg } of fullKeyConf) {
     if (key in result) continue;
     for (const pat of pats) {
       for (let li = 0; li < lines.length; li++) {
         if (!pat.test(lines[li])) continue;
-        for (let j = li; j < Math.min(li + 3, lines.length); j++) {
-          const val = lastItNum(lines[j]);
-          if (val !== null) {
-            if (skipNeg && val <= 0) continue;
-            result[key] = val;
-            break;
-          }
+        if (antiPats.some(p => p.test(lines[li]))) continue;
+        for (let j = li; j < Math.min(li + 5, lines.length); j++) {
+          const val = lastNum(lines[j]);
+          if (val !== null && (!skipNeg || val > 0)) { result[key] = val; break; }
         }
         if (key in result) break;
       }
@@ -407,12 +424,30 @@ async function parsePdfSummary(buf) {
     }
   }
 
+  // ── Strategy 3: Positional fallback — collect all amounts in Sintesi section ──
+  // If the PDF scatters labels and numbers across many lines, take the first 4
+  // significant amounts and map them positionally (order in the Amazon PDF is fixed).
+  const needed = ['ricavi', 'spese', 'imposte', 'trasferimenti'].filter(k => !(k in result));
+  if (needed.length > 0) {
+    const allAmounts = [];
+    for (const line of wLines) {
+      const ms = line.match(/[+-]?\s*\d[\d.]*,\d{2}/g) || [];
+      for (const m of ms) {
+        const val = parseItNum(m.replace(/\s/g, ''));
+        if (Math.abs(val) > 0.5) allAmounts.push(val);
+      }
+    }
+    const posKeys = ['ricavi', 'spese', 'imposte', 'trasferimenti'];
+    posKeys.forEach((k, i) => { if (!(k in result) && allAmounts[i] !== undefined) result[k] = allAmounts[i]; });
+  }
+
   const numKeys = ['ricavi', 'spese', 'imposte', 'trasferimenti'];
   numKeys.forEach(k => { result[k] ??= null; });
-
   result._pdfTextSample = text;
 
-  return numKeys.every(k => result[k] === null) ? null : result;
+  // Return partial results rather than null: UI shows N/D for missing fields
+  // instead of a blocking error. Only return null if PDF text is completely empty.
+  return result;
 }
 
 async function parsePdfAds(buf) {
