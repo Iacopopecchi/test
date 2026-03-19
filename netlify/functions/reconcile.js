@@ -433,8 +433,17 @@ function computeChecks(rows, pdfSum, pdfAdsEur) {
   const nonTr = rows.filter(r => r['Tipo'] !== 'Trasferimento');
   const trRows = rows.filter(r => r['Tipo'] === 'Trasferimento');
 
-  const ricaviCsv = round2(sumCol(rows, 'Vendite'));
+  // Ricavi lordi (gross): only positive Vendite values, matching what the PDF shows.
+  // Negative Vendite (buyer refunds) are reclassified into spese.
+  const ricaviCsv = round2(rows.reduce((s, r) => {
+    const v = parseItNum(String(r['Vendite'] || '0'));
+    return s + (v > 0 ? v : 0);
+  }, 0));
   const speseCsv  = round2(
+    rows.reduce((s, r) => {
+      const v = parseItNum(String(r['Vendite'] || '0'));
+      return s + (v < 0 ? v : 0);  // negative Vendite = refunded sale amounts
+    }, 0) +
     sumCol(rows,  'Commissioni di vendita') +
     sumCol(rows,  'Altri costi relativi alle transazioni') +
     sumCol(nonTr, 'Altro')
@@ -443,14 +452,17 @@ function computeChecks(rows, pdfSum, pdfAdsEur) {
   const adsRows   = rows.filter(r => String(r['Descrizione']||'').trim() === 'Costo della pubblicità');
   const adsCsv    = round2(sumCol(adsRows, 'totale'));
 
-  const d1 = pdfSum.ricavi        !== null ? round2(ricaviCsv - pdfSum.ricavi)        : null;
-  const d2 = pdfSum.spese         !== null ? round2(speseCsv  - pdfSum.spese)         : null;
+  // pdfSpese === 0 means the parser couldn't find it (fees can never be exactly 0).
+  const pdfSpeseEffective = (pdfSum.spese !== null && pdfSum.spese !== 0) ? pdfSum.spese : null;
+
+  const d1 = pdfSum.ricavi        !== null ? round2(ricaviCsv - pdfSum.ricavi)           : null;
+  const d2 = pdfSpeseEffective    !== null ? round2(speseCsv  - pdfSpeseEffective)        : null;
   const d3 = pdfSum.trasferimenti !== null ? round2(trasfCsv  - pdfSum.trasferimenti) : null;
   const d4 = pdfAdsEur            !== null ? round2(adsCsv    - pdfAdsEur)            : null;
 
   return {
     ricavi:        { csv: ricaviCsv, pdf: pdfSum.ricavi,        differenza: d1, pass: d1 !== null ? Math.abs(d1) <= 0.05 : false },
-    spese:         { csv: speseCsv,  pdf: pdfSum.spese,         differenza: d2, pass: d2 !== null ? Math.abs(d2) <= 0.05 : false },
+    spese:         { csv: speseCsv,  pdf: pdfSpeseEffective,    differenza: d2, pass: d2 !== null ? Math.abs(d2) <= 0.05 : false },
     trasferimenti: {
       csv: trasfCsv, pdf: pdfSum.trasferimenti, differenza: d3,
       pass: d3 !== null ? Math.abs(d3) <= 0.05 : false,

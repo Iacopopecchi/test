@@ -316,7 +316,7 @@ function renderNarrative(data) {
 
   let html = '<h3>📋 Come leggere questi numeri</h3>';
 
-  html += `<p>Ad ${data.mese_target} CafèNoirOfficial ha venduto per <strong>${fmtEur(ricavi)}</strong> (IVA esclusa) su Amazon.`;
+  html += `<p>Ad ${data.mese_target} CafèNoirOfficial ha incassato <strong>${fmtEur(ricavi)}</strong> lordi di vendite (IVA esclusa) su Amazon.`;
   if (imposte) {
     html += ` A questi ricavi si aggiungono <strong>${fmtEur(Math.abs(imposte))} di IVA</strong> incassata dai clienti per conto dello stato.`;
   }
