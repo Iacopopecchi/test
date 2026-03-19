@@ -335,44 +335,70 @@ async function parsePdfSummary(buf) {
   const { text } = await pdfParse(buf);
   if (!text.trim()) return null;
 
-  const keywords = {
-    ricavi:        ['ricavi totali', 'ricavi', 'vendite.*accrediti'],
-    spese:         ['spese totali', 'spese', 'costi.*inclusivi'],
-    imposte:       ['imposte.*nette', 'imposte'],
-    trasferimenti: ['trasferimenti', 'versamenti.*prelievi', 'bonifici'],
-  };
-
   const result = {};
   const lines  = text.split('\n');
 
-  // Extract the best monetary value from a window of lines near a keyword.
-  // Looks at the keyword line and the next 2 lines; prefers larger absolute values
-  // (avoids picking up incidental "0,00" on the keyword line itself).
-  function extractFromWindow(startIdx) {
+  // ── Strategy 1: look for the Amazon Italy "Rendiconto" summary table.
+  // pdfParse often linearises the 4-column table as a run of numbers on one line,
+  // preceded by a label like "Totale" or found after "Sintesi".
+  // Pattern we look for in the full text: positive_big  0_or_more  negative
+  // Capture the first large positive (= gross ricavi) and last value (= net transfer).
+  const summaryRe = /([\d]{1,3}(?:\.\d{3})*,\d{2})\s+(?:[\d.,]+\s+){0,3}(-[\d]{1,3}(?:\.\d{3})*,\d{2})/;
+  const summaryMatch = text.match(summaryRe);
+  if (summaryMatch) {
+    const r = parseItNum(summaryMatch[1]);
+    const t = parseItNum(summaryMatch[2]);
+    if (r > 0)  result.ricavi        = r;
+    if (t < 0)  result.trasferimenti = t;
+  }
+
+  // ── Strategy 2: keyword-based line search for remaining fields.
+  const keywords = {
+    ricavi:        ['ricavi totali', 'ricavi delle vendite', 'ricavi', 'vendite.*accrediti'],
+    spese:         ['spese totali', 'totale spese', 'totale addebiti', 'spese', 'costi.*inclusivi'],
+    imposte:       ['imposte.*nette', 'imposte'],
+    trasferimenti: ['trasferimento bancario', 'bonifico bancario', 'trasferimento totale',
+                    'versamenti.*prelievi', 'trasferimenti'],
+  };
+
+  // Lines to skip for each key (false-positive guards)
+  const skipLine = {
+    ricavi:        [/rimborsi?\s+per/i, /accrediti\s+per/i, /credito/i],
+    spese:         [],
+    imposte:       [],
+    trasferimenti: [/non\s+riusciti/i, /mancati/i],
+  };
+
+  function extractFromWindow(startIdx, key) {
     let best = null;
+    const skip = skipLine[key] || [];
     for (let j = startIdx; j < Math.min(startIdx + 3, lines.length); j++) {
+      if (skip.some(p => p.test(lines[j]))) continue;
       const nums = lines[j].match(/[+-]?\s*[\d.,]+/g) || [];
       for (let k = nums.length - 1; k >= 0; k--) {
         const n = nums[k].replace(/\s/g, '');
         if (n.includes(',') || n.length > 3) {
           const val = parseItNum(n);
           if (best === null || Math.abs(val) > Math.abs(best)) best = val;
-          break; // take the rightmost/last candidate on this line
+          break;
         }
       }
     }
+    // Ricavi must be positive (they are credits, not charges)
+    if (key === 'ricavi' && best !== null && best <= 0) return null;
     return best;
   }
 
   for (const [key, kwList] of Object.entries(keywords)) {
+    if (key in result) continue; // already set by strategy 1
     for (const kw of kwList) {
-      const re = new RegExp(kw, 'i');
+      const re   = new RegExp(kw, 'i');
+      const skip = skipLine[key] || [];
       for (let li = 0; li < lines.length; li++) {
-        if (re.test(lines[li])) {
-          const val = extractFromWindow(li);
-          if (val !== null) { result[key] = val; break; }
-        }
-        if (key in result) break;
+        if (!re.test(lines[li])) continue;
+        if (skip.some(p => p.test(lines[li]))) continue;
+        const val = extractFromWindow(li, key);
+        if (val !== null) { result[key] = val; break; }
       }
       if (key in result) break;
     }
@@ -381,8 +407,8 @@ async function parsePdfSummary(buf) {
   const numKeys = ['ricavi','spese','imposte','trasferimenti'];
   numKeys.forEach(k => { result[k] ??= null; });
 
-  // Attach raw text sample for debug (first 50 lines)
-  result._pdfTextSample = lines.slice(0, 50).join('\n');
+  // Full text for debug (helps diagnose PDF format issues)
+  result._pdfTextSample = text;
 
   return numKeys.every(k => result[k] === null) ? null : result;
 }
