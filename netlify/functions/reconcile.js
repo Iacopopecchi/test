@@ -435,13 +435,14 @@ function computeChecks(rows, pdfSum, pdfAdsEur) {
 
   // Ricavi lordi (gross): only positive Vendite values, matching what the PDF shows.
   // Negative Vendite (buyer refunds) are reclassified into spese.
+  // r['Vendite'] is already a parsed number — do not run parseItNum on it again.
   const ricaviCsv = round2(rows.reduce((s, r) => {
-    const v = parseItNum(String(r['Vendite'] || '0'));
+    const v = r['Vendite'] || 0;
     return s + (v > 0 ? v : 0);
   }, 0));
   const speseCsv  = round2(
     rows.reduce((s, r) => {
-      const v = parseItNum(String(r['Vendite'] || '0'));
+      const v = r['Vendite'] || 0;
       return s + (v < 0 ? v : 0);  // negative Vendite = refunded sale amounts
     }, 0) +
     sumCol(rows,  'Commissioni di vendita') +
