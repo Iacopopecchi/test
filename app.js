@@ -327,13 +327,14 @@ function renderVerifica(data) {
 
     // Icon logic
     let icon;
+    const noteTitle = p.note ? ` title="${p.note}"` : '';
     if (ta === null || ta === undefined) {
-      icon = '<span class="verifica-icon verifica-open">⏳</span>';
+      icon = `<span class="verifica-icon verifica-open" ${noteTitle}>⏳</span>`;
     } else if (diff !== null && Math.abs(diff) <= 0.05) {
       if (p.transfer_src === 'target') {
         icon = '<span class="verifica-icon verifica-ok">✅</span>';
       } else {
-        icon = '<span class="verifica-icon verifica-next">⏳</span>';
+        icon = `<span class="verifica-icon verifica-next" ${noteTitle}>⏳</span>`;
       }
     } else {
       icon = '<span class="verifica-icon verifica-fail">❌</span>';
@@ -347,8 +348,12 @@ function renderVerifica(data) {
       ? (Math.abs(diff) < 0.005 ? '-' : fmtEurSign(diff))
       : '-';
 
+    const noteHtml = (ta === null || ta === undefined) && p.note
+      ? `<div class="verifica-nota">${p.note}</div>`
+      : '';
+
     return `<tr>
-      <td>${icon} <code class="periodo-code">${p.periodo_id}</code></td>
+      <td>${icon} <code class="periodo-code">${p.periodo_id}</code>${noteHtml}</td>
       <td class="verifica-dates">${dateRange}</td>
       <td class="num">${fmtEurSign(p.tx_sum)}</td>
       <td class="num">${ta !== null && ta !== undefined ? fmtEurSign(ta) : '—'}</td>

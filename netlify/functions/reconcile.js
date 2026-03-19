@@ -335,79 +335,81 @@ async function parsePdfSummary(buf) {
   const { text } = await pdfParse(buf);
   if (!text.trim()) return null;
 
-  const result = {};
   const lines  = text.split('\n');
+  const result = {};
 
-  // ── Strategy 1: look for the Amazon Italy "Rendiconto" summary table.
-  // pdfParse often linearises the 4-column table as a run of numbers on one line,
-  // preceded by a label like "Totale" or found after "Sintesi".
-  // Pattern we look for in the full text: positive_big  0_or_more  negative
-  // Capture the first large positive (= gross ricavi) and last value (= net transfer).
-  const summaryRe = /([\d]{1,3}(?:\.\d{3})*,\d{2})\s+(?:[\d.,]+\s+){0,3}(-[\d]{1,3}(?:\.\d{3})*,\d{2})/;
-  const summaryMatch = text.match(summaryRe);
-  if (summaryMatch) {
-    const r = parseItNum(summaryMatch[1]);
-    const t = parseItNum(summaryMatch[2]);
-    if (r > 0)  result.ricavi        = r;
-    if (t < 0)  result.trasferimenti = t;
+  // ── Find the "Sintesi" section of the Amazon Italy "Rendiconto pagamenti" PDF.
+  // The table has exactly 4 rows (pdfParse may put each row on one line or spread to 2):
+  //   Ricavi        Vendite, accrediti e rimborsi          1.548,61
+  //   Spese         Costi inclusivi di abbonamento ...    -1.381,55
+  //   Imposte       Imposte nette da versare                 377,91
+  //   Trasferimenti Versamenti e prelievi                   -177,87
+  //
+  // Strategy: locate the "Sintesi" header (first 30 lines), then scan the next
+  // 60 lines for rows whose trimmed text starts with one of the 4 keywords.
+  // Take the LAST Italian-format number (NNN.NNN,NN) on that line or the next 2.
+
+  let startLine = 0;
+  for (let i = 0; i < Math.min(lines.length, 30); i++) {
+    if (/sintesi/i.test(lines[i])) { startLine = i; break; }
+  }
+  const window = lines.slice(startLine, startLine + 60);
+
+  function lastItNum(line) {
+    const nums = line.match(/[+-]?\s*[\d]+(?:\.[\d]{3})*,\d{2}/g);
+    if (!nums || !nums.length) return null;
+    return parseItNum(nums[nums.length - 1].replace(/\s/g, ''));
   }
 
-  // ── Strategy 2: keyword-based line search for remaining fields.
-  const keywords = {
-    ricavi:        ['ricavi totali', 'ricavi delle vendite', 'ricavi', 'vendite.*accrediti'],
-    spese:         ['spese totali', 'totale spese', 'totale addebiti', 'spese', 'costi.*inclusivi'],
-    imposte:       ['imposte.*nette', 'imposte'],
-    trasferimenti: ['trasferimento bancario', 'bonifico bancario', 'trasferimento totale',
-                    'versamenti.*prelievi', 'trasferimenti'],
-  };
+  const searchConf = [
+    { key: 'ricavi',        pats: [/^ricavi\b/i,        /^vendite.*accrediti/i]        },
+    { key: 'spese',         pats: [/^spese\b/i,         /^costi.*inclusivi/i]          },
+    { key: 'imposte',       pats: [/^imposte\b/i,       /^imposte.*nette/i]            },
+    { key: 'trasferimenti', pats: [/^trasferimenti\b/i, /^versamenti.*prelievi/i]      },
+  ];
 
-  // Lines to skip for each key (false-positive guards)
-  const skipLine = {
-    ricavi:        [/rimborsi?\s+per/i, /accrediti\s+per/i, /credito/i],
-    spese:         [],
-    imposte:       [],
-    trasferimenti: [/non\s+riusciti/i, /mancati/i],
-  };
-
-  function extractFromWindow(startIdx, key) {
-    let best = null;
-    const skip = skipLine[key] || [];
-    for (let j = startIdx; j < Math.min(startIdx + 3, lines.length); j++) {
-      if (skip.some(p => p.test(lines[j]))) continue;
-      const nums = lines[j].match(/[+-]?\s*[\d.,]+/g) || [];
-      for (let k = nums.length - 1; k >= 0; k--) {
-        const n = nums[k].replace(/\s/g, '');
-        if (n.includes(',') || n.length > 3) {
-          const val = parseItNum(n);
-          if (best === null || Math.abs(val) > Math.abs(best)) best = val;
-          break;
-        }
-      }
-    }
-    // Ricavi must be positive (they are credits, not charges)
-    if (key === 'ricavi' && best !== null && best <= 0) return null;
-    return best;
-  }
-
-  for (const [key, kwList] of Object.entries(keywords)) {
-    if (key in result) continue; // already set by strategy 1
-    for (const kw of kwList) {
-      const re   = new RegExp(kw, 'i');
-      const skip = skipLine[key] || [];
-      for (let li = 0; li < lines.length; li++) {
-        if (!re.test(lines[li])) continue;
-        if (skip.some(p => p.test(lines[li]))) continue;
-        const val = extractFromWindow(li, key);
+  for (const { key, pats } of searchConf) {
+    for (let li = 0; li < window.length; li++) {
+      if (!pats.some(p => p.test(window[li].trim()))) continue;
+      // Look for a number on this line or the next 2
+      for (let j = li; j < Math.min(li + 3, window.length); j++) {
+        const val = lastItNum(window[j]);
         if (val !== null) { result[key] = val; break; }
       }
       if (key in result) break;
     }
   }
 
-  const numKeys = ['ricavi','spese','imposte','trasferimenti'];
+  // ── Fallback: keyword scan across the full document (older PDF layouts).
+  const fallbackConf = [
+    { key: 'ricavi',        pats: [/ricavi.*vendite/i, /vendite.*accrediti.*rimborsi/i], skipNeg: true },
+    { key: 'spese',         pats: [/spese totali/i, /totale.*spese/i, /costi.*inclusivi/i] },
+    { key: 'imposte',       pats: [/imposte.*nette/i] },
+    { key: 'trasferimenti', pats: [/versamenti.*prelievi/i, /trasferimento.*bancario/i,
+                                   /bonifico.*bancario/i] },
+  ];
+  for (const { key, pats, skipNeg } of fallbackConf) {
+    if (key in result) continue;
+    for (const pat of pats) {
+      for (let li = 0; li < lines.length; li++) {
+        if (!pat.test(lines[li])) continue;
+        for (let j = li; j < Math.min(li + 3, lines.length); j++) {
+          const val = lastItNum(lines[j]);
+          if (val !== null) {
+            if (skipNeg && val <= 0) continue;
+            result[key] = val;
+            break;
+          }
+        }
+        if (key in result) break;
+      }
+      if (key in result) break;
+    }
+  }
+
+  const numKeys = ['ricavi', 'spese', 'imposte', 'trasferimenti'];
   numKeys.forEach(k => { result[k] ??= null; });
 
-  // Full text for debug (helps diagnose PDF format issues)
   result._pdfTextSample = text;
 
   return numKeys.every(k => result[k] === null) ? null : result;
@@ -508,13 +510,33 @@ function computePeriods(targetRows, prevRows, nextRows) {
     }
   }
 
-  return Object.values(map)
-    .sort((a, b) => {
-      const aMin = a.dates.length ? Math.min(...a.dates.map(d => d.getTime())) : Infinity;
-      const bMin = b.dates.length ? Math.min(...b.dates.map(d => d.getTime())) : Infinity;
-      return aMin - bMin;
-    })
-    .map(p => {
+  // ── Reassign transfers to the period they actually CLOSE.
+  // A "Trasferimento" row is recorded in period[i] but it closes period[i-1].
+  // Example: transfer in period 26305968902 → closes period 26216940642 (the previous one).
+  const sorted = Object.values(map).sort((a, b) => {
+    const aMin = a.dates.length ? Math.min(...a.dates.map(d => d.getTime())) : Infinity;
+    const bMin = b.dates.length ? Math.min(...b.dates.map(d => d.getTime())) : Infinity;
+    return aMin - bMin;
+  });
+
+  // Snapshot original transfer values before any mutation
+  const origTransfers = sorted.map(p => ({
+    amount: p.transfer_amount,
+    date:   p.transfer_date,
+    src:    p.transfer_src,
+  }));
+
+  // Reset all transfers, then reassign: transfer[i] → closes sorted[i-1]
+  sorted.forEach(p => { p.transfer_amount = null; p.transfer_date = null; p.transfer_src = null; });
+  for (let i = 1; i < sorted.length; i++) {
+    if (origTransfers[i].amount !== null) {
+      sorted[i - 1].transfer_amount = origTransfers[i].amount;
+      sorted[i - 1].transfer_date   = origTransfers[i].date;
+      sorted[i - 1].transfer_src    = origTransfers[i].src;
+    }
+  }
+
+  return sorted.map(p => {
       const ds   = p.dates;
       const dMin = ds.length ? new Date(Math.min(...ds.map(d => d.getTime()))) : null;
       const dMax = ds.length ? new Date(Math.max(...ds.map(d => d.getTime()))) : null;

@@ -584,6 +584,7 @@ body {
 .verifica-open  { opacity: .75; }
 .verifica-fail  { }
 .periodo-code   { font-size: .8rem; background: #f0f2f5; padding: 1px 5px; border-radius: 3px; }
+.verifica-nota  { font-size: .72rem; color: var(--text-muted); margin-top: 2px; font-style: italic; }
 
 /* Legenda */
 .legenda-section { }
