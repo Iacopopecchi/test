@@ -443,14 +443,14 @@ function computeChecks(rows, pdfSum, pdfAdsEur) {
   const adsRows   = rows.filter(r => String(r['Descrizione']||'').trim() === 'Costo della pubblicità');
   const adsCsv    = round2(sumCol(adsRows, 'totale'));
 
-  const d1 = null; // Ricavi PDF non confrontabile (PDF mostra lordo, CSV netto)
-  const d2 = null; // Spese PDF non estraibili da questo formato PDF
+  const d1 = pdfSum.ricavi !== null ? round2(ricaviCsv - pdfSum.ricavi) : null;
+  const d2 = pdfSum.spese  !== null ? round2(speseCsv  - pdfSum.spese)  : null;
   const d3 = pdfSum.trasferimenti !== null ? round2(trasfCsv  - pdfSum.trasferimenti) : null;
   const d4 = pdfAdsEur            !== null ? round2(adsCsv    - pdfAdsEur)            : null;
 
   return {
-    ricavi:        { csv: ricaviCsv, pdf: null, differenza: null, pass: null },
-    spese:         { csv: speseCsv,  pdf: null, differenza: null, pass: null },
+    ricavi:        { csv: ricaviCsv, pdf: pdfSum.ricavi, differenza: d1, pass: d1 !== null ? Math.abs(d1) <= 0.05 : null },
+    spese:         { csv: speseCsv,  pdf: pdfSum.spese,  differenza: d2, pass: d2 !== null ? Math.abs(d2) <= 0.05 : null },
     trasferimenti: {
       csv: trasfCsv, pdf: pdfSum.trasferimenti, differenza: d3,
       pass: d3 !== null ? Math.abs(d3) <= 0.05 : false,
