@@ -239,8 +239,10 @@ function renderDebug(dbg) {
       <code style="font-size:.72rem">${(dbg.csv_headers || []).join(' | ')}</code><br><br>
       <b>Mappatura colonne numeriche:</b><br>
       <table>${colRows}</table><br>
+      ${dbg.csv_first_row ? `<b>Prima riga CSV (parsed):</b><br><code style="font-size:.72rem;word-break:break-all">${dbg.csv_first_row}</code><br><br>` : ''}
       <b>PDF – valori estratti:</b><br>
-      <code>${JSON.stringify(dbg.pdf_raw_values)}</code><br>
+      <code>${JSON.stringify(dbg.pdf_raw_values)}</code><br><br>
+      ${dbg.pdf_text_sample ? `<details style="margin-top:.5rem"><summary style="cursor:pointer;color:#888">📄 Testo grezzo PDF (prime 50 righe)</summary><pre style="font-size:.68rem;white-space:pre-wrap;max-height:300px;overflow:auto;background:#f0f0f0;padding:.5rem;margin-top:.25rem">${dbg.pdf_text_sample.replace(/</g,'&lt;')}</pre></details>` : ''}
     </div>`;
   el.hidden = false;
 }

@@ -127,8 +127,10 @@ exports.handler = async (event) => {
         csv_separator:    targetRows._sep         || '?',
         csv_row_count:    targetRows.length,
         csv_col_resolved: targetRows._colResolved || {},
-        pdf_keys_found:   Object.entries(pdfSum).filter(([,v]) => v !== null).map(([k]) => k),
-        pdf_raw_values:   pdfSum,
+        csv_first_row:    targetRows._firstRow    || '',
+        pdf_keys_found:   Object.entries(pdfSum).filter(([k,v]) => !k.startsWith('_') && v !== null).map(([k]) => k),
+        pdf_raw_values:   { ricavi: pdfSum.ricavi, spese: pdfSum.spese, imposte: pdfSum.imposte, trasferimenti: pdfSum.trasferimenti },
+        pdf_text_sample:  pdfSum._pdfTextSample || '',
       },
       checks,
       saldo_residuo: {
@@ -176,6 +178,38 @@ function parseMultipart(event) {
 }
 
 // ── CSV parsing ──────────────────────────────────────────────────────────────
+
+/**
+ * RFC 4180-compliant CSV field splitter.
+ * Handles quoted fields (including quoted commas/decimals like "37,50").
+ */
+function parseCsvLine(line, sep) {
+  const result = [];
+  let i = 0;
+  while (i < line.length) {
+    if (line[i] === '"') {
+      let val = '';
+      i++; // skip opening quote
+      while (i < line.length) {
+        if (line[i] === '"') {
+          if (i + 1 < line.length && line[i + 1] === '"') { val += '"'; i += 2; } // escaped ""
+          else { i++; break; } // closing quote
+        } else {
+          val += line[i++];
+        }
+      }
+      result.push(val);
+      if (i < line.length && line[i] === sep) i++; // skip separator after closing quote
+    } else {
+      const end = line.indexOf(sep, i);
+      if (end === -1) { result.push(line.slice(i)); break; }
+      result.push(line.slice(i, end));
+      i = end + 1;
+    }
+  }
+  if (line.length > 0 && line[line.length - 1] === sep) result.push(''); // trailing separator
+  return result;
+}
 
 function parseItNum(val) {
   const s = String(val ?? '').trim();
@@ -225,7 +259,7 @@ function parseAmazonCsv(buf) {
             : hLine.includes(';')  ? ';'
             : ',';
 
-  const rawHeaders = hLine.split(sep).map(h => h.trim().replace(/^"(.*)"$/, '$1'));
+  const rawHeaders = parseCsvLine(hLine, sep).map(h => h.trim());
 
   // Case-insensitive index lookup: lowercase_name -> column_index
   const hIdx = {};
@@ -262,7 +296,7 @@ function parseAmazonCsv(buf) {
 
   for (let i = 8; i < lines.length; i++) {
     if (!lines[i].trim()) continue;
-    const vals = lines[i].split(sep);
+    const vals = parseCsvLine(lines[i], sep);
 
     const row = {};
 
@@ -278,8 +312,8 @@ function parseAmazonCsv(buf) {
     row['Numero ordine']    = col(vals, 'Numero ordine');
     row['Numero pagamento'] = String(col(vals, 'Numero pagamento')).split('.')[0].trim();
 
-    // Date
-    const dateVal = col(vals, 'Data') || col(vals, 'Date');
+    // Date — Amazon Italy CSV uses "Data/Ora"; fall back to plain "Data" / "Date"
+    const dateVal = col(vals, 'Data/Ora') || col(vals, 'Data') || col(vals, 'Date');
     row._date    = parseItDate(dateVal);
     row._dateStr = dateVal;
 
@@ -302,25 +336,41 @@ async function parsePdfSummary(buf) {
   if (!text.trim()) return null;
 
   const keywords = {
-    ricavi:        ['ricavi', 'vendite.*accrediti'],
-    spese:         ['spese', 'costi.*inclusivi'],
+    ricavi:        ['ricavi totali', 'ricavi', 'vendite.*accrediti'],
+    spese:         ['spese totali', 'spese', 'costi.*inclusivi'],
     imposte:       ['imposte.*nette', 'imposte'],
-    trasferimenti: ['trasferimenti', 'versamenti.*prelievi'],
+    trasferimenti: ['trasferimenti', 'versamenti.*prelievi', 'bonifici'],
   };
 
   const result = {};
   const lines  = text.split('\n');
 
+  // Extract the best monetary value from a window of lines near a keyword.
+  // Looks at the keyword line and the next 2 lines; prefers larger absolute values
+  // (avoids picking up incidental "0,00" on the keyword line itself).
+  function extractFromWindow(startIdx) {
+    let best = null;
+    for (let j = startIdx; j < Math.min(startIdx + 3, lines.length); j++) {
+      const nums = lines[j].match(/[+-]?\s*[\d.,]+/g) || [];
+      for (let k = nums.length - 1; k >= 0; k--) {
+        const n = nums[k].replace(/\s/g, '');
+        if (n.includes(',') || n.length > 3) {
+          const val = parseItNum(n);
+          if (best === null || Math.abs(val) > Math.abs(best)) best = val;
+          break; // take the rightmost/last candidate on this line
+        }
+      }
+    }
+    return best;
+  }
+
   for (const [key, kwList] of Object.entries(keywords)) {
     for (const kw of kwList) {
       const re = new RegExp(kw, 'i');
-      for (const line of lines) {
-        if (re.test(line)) {
-          const nums = line.match(/[+-]?\s*[\d.,]+/g) || [];
-          for (let i = nums.length - 1; i >= 0; i--) {
-            const n = nums[i].replace(/\s/g, '');
-            if (n.includes(',') || n.length > 3) { result[key] = parseItNum(n); break; }
-          }
+      for (let li = 0; li < lines.length; li++) {
+        if (re.test(lines[li])) {
+          const val = extractFromWindow(li);
+          if (val !== null) { result[key] = val; break; }
         }
         if (key in result) break;
       }
@@ -328,8 +378,13 @@ async function parsePdfSummary(buf) {
     }
   }
 
-  ['ricavi','spese','imposte','trasferimenti'].forEach(k => { result[k] ??= null; });
-  return Object.values(result).every(v => v === null) ? null : result;
+  const numKeys = ['ricavi','spese','imposte','trasferimenti'];
+  numKeys.forEach(k => { result[k] ??= null; });
+
+  // Attach raw text sample for debug (first 50 lines)
+  result._pdfTextSample = lines.slice(0, 50).join('\n');
+
+  return numKeys.every(k => result[k] === null) ? null : result;
 }
 
 async function parsePdfAds(buf) {
