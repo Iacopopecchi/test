@@ -14,8 +14,6 @@ const files = {
   pdf_ads:     null,
 };
 
-let allTransactions = [];
-
 // ─── MONTH / YEAR SETUP ───────────────────────────────────────────
 const MESI = [
   '', 'Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno',
@@ -63,15 +61,12 @@ function initDropZones() {
     const zone  = document.getElementById(zoneId);
     const input = document.getElementById(inputId);
 
-    // Click → open file picker
     zone.addEventListener('click', () => input.click());
 
-    // File selected via picker
     input.addEventListener('change', () => {
       if (input.files.length) setFile(field, input.files[0], zone, nameId);
     });
 
-    // Drag events
     zone.addEventListener('dragover',  e => { e.preventDefault(); zone.classList.add('drag-over'); });
     zone.addEventListener('dragleave', ()  => zone.classList.remove('drag-over'));
     zone.addEventListener('drop', e => {
@@ -116,7 +111,7 @@ async function submitForm(e) {
   });
 
   try {
-    const res = await fetch('/api/reconcile', { method: 'POST', body: form });
+    const res  = await fetch('/api/reconcile', { method: 'POST', body: form });
     const data = await res.json();
 
     if (data.error) {
@@ -163,305 +158,243 @@ function showUpload() {
 
 // ─── RENDER RESULTS ───────────────────────────────────────────────
 function renderResults(data) {
-  // Header
-  document.getElementById('results-title').textContent = `Riconciliazione ${data.mese_target}`;
+  renderDashHeader(data);
+  renderWarnings(data.warnings || []);
+  renderRic1(data);
+  renderRic2(data);
+  renderVerifica(data);
+  renderLegenda(data);
+}
 
-  const badge = document.getElementById('results-badge');
-  if (data.status_globale === 'OK') {
-    badge.textContent = '✅ Tutto quadra';
-    badge.className = 'status-badge ok';
-  } else if (data.status_globale === 'ATTENZIONE') {
-    badge.textContent = '⚠️ Attenzione';
-    badge.className = 'status-badge warn';
+// ─── DASHBOARD HEADER ─────────────────────────────────────────────
+function renderDashHeader(data) {
+  document.getElementById('dash-title').textContent =
+    `☁ RICONCILIAZIONE AMAZON — ${data.mese_target}`;
+
+  const mkts = (data.marketplaces || []).join(' · ');
+  const sub  = [
+    'CaféNoirOfficial',
+    mkts || null,
+    data.periodo_label ? `Periodo: ${data.periodo_label}` : null,
+  ].filter(Boolean).join(' · ');
+
+  document.getElementById('dash-subtitle').textContent = sub;
+
+  const meseNome = (data.mese_target || '').split(' ')[0].toLowerCase();
+  const meseEl   = document.getElementById('mese-verifica');
+  if (meseEl) meseEl.textContent = meseNome;
+}
+
+// ─── WARNINGS ─────────────────────────────────────────────────────
+function renderWarnings(warnings) {
+  const box = document.getElementById('warnings-box');
+  if (warnings.length) {
+    box.textContent = '⚠️ ' + warnings.join(' | ');
+    box.classList.remove('hidden');
   } else {
-    badge.textContent = '❌ Errore';
-    badge.className = 'status-badge error';
-  }
-
-  // Warnings
-  const warnBox = document.getElementById('warnings-box');
-  if (data.warnings && data.warnings.length) {
-    warnBox.textContent = '⚠️ ' + data.warnings.join(' | ');
-    warnBox.classList.remove('hidden');
-  } else {
-    warnBox.classList.add('hidden');
-  }
-
-  // 4 checks
-  renderCheck('ricavi',         data.checks.ricavi);
-  renderCheck('spese',          data.checks.spese);
-  renderCheck('trasferimenti',  data.checks.trasferimenti);
-  renderCheckAds(data.checks.ads);
-
-  // Transfer detail
-  renderTransferDetail(data.checks.trasferimenti.dettaglio || []);
-
-  // Narrative
-  renderNarrative(data);
-
-  // Saldo
-  renderSaldo(data.saldo_residuo, data.pdf_summary_raw);
-
-  // Settlement periods
-  renderPeriods(data.settlement_periods || []);
-
-  // Transactions
-  allTransactions = data.transazioni || [];
-  renderTransactions(allTransactions);
-  populateFilters(allTransactions);
-
-  // Debug panel
-  renderDebug(data._debug);
-}
-
-function renderDebug(dbg) {
-  let el = document.getElementById('debug-panel');
-  if (!el) {
-    el = document.createElement('details');
-    el.id = 'debug-panel';
-    el.style.cssText = 'margin:1rem 0;font-size:.78rem;color:#666;background:#f9f9f9;border:1px solid #ddd;border-radius:6px;padding:.75rem 1rem';
-    const resultsEl = document.getElementById('results') || document.body;
-    resultsEl.appendChild(el);
-  }
-  if (!dbg) { el.hidden = true; return; }
-
-  const resolved = dbg.csv_col_resolved || {};
-  const colRows = Object.entries(resolved).map(([canonical, actual]) =>
-    `<tr><td style="color:#888;padding:1px 8px 1px 0">${canonical}</td><td style="font-weight:${actual ? 700 : 400};color:${actual ? '#1a7a1a' : '#c00'}">${actual || '❌ NON TROVATA'}</td></tr>`
-  ).join('');
-
-  el.innerHTML = `
-    <summary style="cursor:pointer;font-weight:700;color:#555">🔍 Debug info (CSV + PDF)</summary>
-    <div style="margin-top:.5rem">
-      <b>Separatore CSV:</b> <code>${dbg.csv_separator === '\t' ? 'TAB' : dbg.csv_separator}</code>
-      &nbsp;|&nbsp; <b>Righe lette:</b> ${dbg.csv_row_count}<br><br>
-      <b>Intestazioni CSV trovate:</b><br>
-      <code style="font-size:.72rem">${(dbg.csv_headers || []).join(' | ')}</code><br><br>
-      <b>Mappatura colonne numeriche:</b><br>
-      <table>${colRows}</table><br>
-      ${dbg.csv_first_row ? `<b>Prima riga CSV (parsed):</b><br><code style="font-size:.72rem;word-break:break-all">${dbg.csv_first_row}</code><br><br>` : ''}
-      <b>PDF – valori estratti:</b><br>
-      <code>${JSON.stringify(dbg.pdf_raw_values)}</code><br><br>
-      ${dbg.pdf_text_sample ? `<details style="margin-top:.5rem"><summary style="cursor:pointer;color:#888">📄 Testo grezzo PDF (prime 50 righe)</summary><pre style="font-size:.68rem;white-space:pre-wrap;max-height:300px;overflow:auto;background:#f0f0f0;padding:.5rem;margin-top:.25rem">${dbg.pdf_text_sample.replace(/</g,'&lt;')}</pre></details>` : ''}
-    </div>`;
-  el.hidden = false;
-}
-
-function renderCheck(key, check) {
-  const card  = document.getElementById(`card-${key === 'trasferimenti' ? 'trasferimenti' : key}`);
-  const icon  = document.getElementById(`icon-${key === 'trasferimenti' ? 'trasferimenti' : key}`);
-  const csvEl = document.getElementById(`val-${abbr(key)}-csv`);
-  const pdfEl = document.getElementById(`val-${abbr(key)}-pdf`);
-  const dltEl = document.getElementById(`val-${abbr(key)}-delta`);
-
-  const pass = check.pass;
-  card.className = `check-card ${pass ? 'pass' : 'fail'}`;
-  icon.textContent = pass ? '✅' : '❌';
-  csvEl.textContent = fmtEur(check.csv);
-  pdfEl.textContent = check.pdf !== null && check.pdf !== undefined ? fmtEur(check.pdf) : 'N/D';
-  dltEl.textContent = check.differenza !== null && check.differenza !== undefined ? fmtEur(check.differenza) : '—';
-}
-
-function renderCheckAds(ads) {
-  const card  = document.getElementById('card-ads');
-  const icon  = document.getElementById('icon-ads');
-  const csvEl = document.getElementById('val-ads-csv');
-  const pdfEl = document.getElementById('val-ads-pdf');
-  const dltEl = document.getElementById('val-ads-delta');
-
-  if (!ads.disponibile) {
-    card.className = 'check-card nd';
-    icon.textContent = '➖';
-    csvEl.textContent = fmtEur(ads.csv);
-    pdfEl.textContent = 'N/D';
-    dltEl.textContent = '—';
-  } else {
-    card.className = `check-card ${ads.pass ? 'pass' : 'fail'}`;
-    icon.textContent = ads.pass ? '✅' : '❌';
-    csvEl.textContent = fmtEur(ads.csv);
-    pdfEl.textContent = fmtEur(ads.pdf);
-    dltEl.textContent = fmtEur(ads.differenza);
+    box.classList.add('hidden');
   }
 }
 
-function abbr(key) {
-  if (key === 'trasferimenti') return 'trasf';
-  return key;
-}
+// ─── RICONCILIAZIONE 1 ────────────────────────────────────────────
+function renderRic1(data) {
+  const checks = data.checks;
+  const saldo  = data.saldo_residuo;
+  const opens  = saldo.open_periods || [];
 
-function renderTransferDetail(detail) {
-  const el = document.getElementById('detail-trasferimenti');
-  if (!detail.length) { el.innerHTML = ''; return; }
+  // helper: build a standard comparison row
+  function compRow(voce, check, boldVoce) {
+    const diff = check.differenza;
+    const pass = check.pass;
+    const esito = pass === null
+      ? '<td class="center recon-nd">—</td>'
+      : pass
+        ? '<td class="center recon-ok">✅ OK</td>'
+        : '<td class="center recon-fail">❌</td>';
 
-  let html = '<div style="font-size:.76rem;color:var(--text-muted);font-weight:600;margin-bottom:4px">Bonifici ricevuti:</div>';
-  detail.forEach(d => {
-    html += `<div class="transfer-item"><span>${d.data}</span><span style="font-weight:700;color:var(--amazon-dark)">${fmtEur(d.importo)}</span></div>`;
-  });
-  el.innerHTML = html;
-}
-
-function renderNarrative(data) {
-  const checks  = data.checks;
-  const sumRaw  = data.pdf_summary_raw;
-  const saldo   = data.saldo_residuo;
-  const periods = data.settlement_periods || [];
-
-  const ricavi  = checks.ricavi.csv;
-  const imposte = saldo.imposte;
-  const spese   = Math.abs(checks.spese.csv);
-  const trasf   = checks.trasferimenti;
-  const ads     = checks.ads;
-
-  const transferDetail = trasf.dettaglio || [];
-
-  let html = '<h3>📋 Come leggere questi numeri</h3>';
-
-  html += `<p>Ad ${data.mese_target} CafèNoirOfficial ha venduto per <strong>${fmtEur(ricavi)}</strong> (IVA esclusa) su Amazon.`;
-  if (imposte) {
-    html += ` A questi ricavi si aggiungono <strong>${fmtEur(Math.abs(imposte))} di IVA</strong> incassata dai clienti per conto dello stato.`;
-  }
-  html += '</p>';
-
-  html += `<p>Amazon ha trattenuto <strong>${fmtEur(spese)} di spese</strong> (commissioni di vendita, costi vari, rimborsi).`;
-  if (ads.disponibile) {
-    html += ` Il costo pubblicitario ADS è stato di <strong>${fmtEur(Math.abs(ads.csv))}</strong>`;
-    html += ads.pass ? ', verificato e coincidente con la fattura ADS. ✅' : ' — ⚠️ differenza con la fattura ADS.';
-  }
-  html += '</p>';
-
-  if (transferDetail.length > 0) {
-    html += `<p>Amazon ha effettuato <strong>${transferDetail.length} bonif${transferDetail.length === 1 ? 'ico' : 'ici'}</strong> sul conto corrente a ${data.mese_target}:</p><ul style="margin:4px 0 10px 20px">`;
-    let totTrasf = 0;
-    transferDetail.forEach(d => {
-      html += `<li>${d.data}: <strong>${fmtEur(d.importo)}</strong></li>`;
-      totTrasf += d.importo;
-    });
-    html += `</ul><p>Totale ricevuto: <strong>${fmtEur(totTrasf)}</strong></p>`;
-  } else {
-    html += '<p>Nessun bonifico registrato nel mese target.</p>';
+    return `<tr class="${boldVoce ? 'ric1-bold' : ''}">
+      <td>${voce}</td>
+      <td class="num">${fmtEurSign(check.csv)}</td>
+      <td class="num">${check.pdf !== null && check.pdf !== undefined ? fmtEurSign(check.pdf) : '<span class="recon-nd">N/D</span>'}</td>
+      <td class="num">${diff !== null && diff !== undefined ? (Math.abs(diff) < 0.005 ? '-' : fmtEurSign(diff)) : '-'}</td>
+      ${esito}
+    </tr>`;
   }
 
-  const openPeriods = periods.filter(p => p.transfer_amount === null || p.transfer_amount === undefined);
-  if (openPeriods.length > 0 && Math.abs(saldo.importo) > 0.10) {
-    html += `<p>A fine ${data.mese_target} rimangono <strong>${fmtEur(saldo.importo)}</strong> ancora sul conto Amazon (non ancora trasferiti). Questo è normale:`;
-    openPeriods.forEach(p => {
-      html += ` il periodo di liquidazione <em>${p.periodo_id}</em> si chiude il mese successivo — il bonifico corrispondente di <strong>${fmtEur(p.tx_sum)}</strong> è atteso.`;
-    });
-    html += '</p>';
+  const saldoGen  = round2(checks.ricavi.csv + checks.spese.csv + checks.imposte.csv);
+  const saldoRes  = saldo.importo;
+
+  // Open period note
+  let openNote = '';
+  if (opens.length) {
+    const nextMese = nextMonthName(data.mese_target);
+    openNote = opens.map(pid =>
+      `Periodo ${pid} ancora aperto — bonifico atteso a ${nextMese}`
+    ).join(' | ');
   }
 
-  if (data.status_globale === 'OK') {
-    html += '<p style="color:var(--green);font-weight:700">✅ Tutti i check sono stati superati: la riconciliazione è corretta.</p>';
-  } else {
-    html += '<p style="color:var(--red);font-weight:700">⚠️ Uno o più check non sono stati superati: verifica le differenze nelle card sopra.</p>';
-  }
+  // ADS row
+  const ads    = checks.ads;
+  const adsDiff = ads.differenza;
+  const adsEsito = !ads.disponibile
+    ? '<td class="center recon-nd">N/D</td>'
+    : ads.pass
+      ? '<td class="center recon-ok">✅ OK</td>'
+      : '<td class="center recon-fail">❌</td>';
 
-  document.getElementById('narrative-box').innerHTML = html;
-}
+  const adsRow = `<tr>
+    <td>Costo ADS (verifica fattura)</td>
+    <td class="num">${fmtEurSign(ads.csv)}</td>
+    <td class="num">${ads.disponibile && ads.pdf !== null ? fmtEurSign(ads.pdf) : '<span class="recon-nd">N/D</span>'}</td>
+    <td class="num">${adsDiff !== null && Math.abs(adsDiff) < 0.005 ? '-' : (adsDiff !== null ? fmtEurSign(adsDiff) : '-')}</td>
+    ${adsEsito}
+  </tr>`;
 
-function renderSaldo(saldo, raw) {
-  const r = saldo.ricavi  || 0;
-  const i = saldo.imposte || 0;
-  const s = saldo.spese   || 0;
-  const t = saldo.trasferimenti || 0;
-  const tot = saldo.importo;
-
-  const html = `
-    <div class="saldo-title">💰 Saldo residuo su conto Amazon</div>
-    <div class="saldo-amount">${fmtEur(tot)}</div>
-    <div class="saldo-formula">
-      Ricavi (${fmtSign(r)}) + IVA (${fmtSign(i)}) + Spese (${fmtSign(s)}) + Trasferimenti (${fmtSign(t)})<br>
-      = <strong>${fmtEur(tot)}</strong>
-    </div>
-    <div class="saldo-explanation">${saldo.spiegazione || ''}</div>
+  document.getElementById('ric1-tbody').innerHTML = `
+    ${compRow('Ricavi (imponibile vendite)',        checks.ricavi)}
+    ${compRow('Spese (commissioni + costi)',        checks.spese)}
+    ${compRow('Imposte nette (IVA vendite)',        checks.imposte)}
+    ${compRow('Trasferimenti ricevuti',             checks.trasferimenti)}
+    <tr class="ric1-computed">
+      <td><strong>Saldo generato (Ricavi + Spese + Imposte)</strong></td>
+      <td class="num"><strong>${fmtEurSign(saldoGen)}</strong></td>
+      <td></td><td></td><td></td>
+    </tr>
+    <tr class="ric1-saldo-residuo">
+      <td><strong>Saldo residuo su conto Amazon (fine mese)</strong></td>
+      <td class="num"><strong>${fmtEur(saldoRes)}</strong></td>
+      <td colspan="3" class="recon-open-note">${openNote}</td>
+    </tr>
+    ${adsRow}
   `;
-
-  document.getElementById('saldo-box').innerHTML = html;
 }
 
-function renderPeriods(periods) {
-  const tbody = document.getElementById('periods-tbody');
-  if (!periods.length) {
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted)">Nessun settlement period trovato</td></tr>';
+// ─── RICONCILIAZIONE 2 ────────────────────────────────────────────
+function renderRic2(data) {
+  const periods   = data.settlement_periods || [];
+  // Only paid periods where transfer was in the target month
+  const paid = periods.filter(p => p.transfer_amount !== null && p.transfer_src === 'target');
+
+  if (!paid.length) {
+    document.getElementById('ric2-tbody').innerHTML =
+      '<tr><td colspan="5" class="recon-nd-cell">Nessun bonifico ricevuto nel mese target</td></tr>';
     return;
   }
 
-  tbody.innerHTML = periods.map(p => {
-    const closed = p.differenza !== null && p.differenza !== undefined;
-    const ok     = closed && Math.abs(p.differenza) <= 0.05;
-    const badge  = closed ? (ok ? '<span class="badge-ok">✅</span>' : '<span class="badge-fail">❌</span>') : '<span class="badge-nd">–</span>';
+  const totalCash = round2(paid.reduce((s, p) => s + (p.transfer_amount || 0), 0));
+
+  const rows = paid.map(p => {
+    // Format: "26216940642 (31/12→13/01)\nBonifico +80,80 il 14/01"
+    const dateRange = `${shortDate(p.data_inizio)}→${shortDate(p.data_fine)}`;
+    const bonifica  = p.transfer_date
+      ? `Bonifico ${fmtEurSign(p.transfer_amount)} il ${shortDate(p.transfer_date)}`
+      : '';
+    return `<tr>
+      <td class="ric2-periodo-cell">
+        <span class="ric2-periodo-id">${p.periodo_id}</span>
+        <span class="ric2-periodo-range">(${dateRange})</span>
+        ${bonifica ? `<span class="ric2-bonifico">${bonifica}</span>` : ''}
+      </td>
+      <td class="num">${fmtEurSign(p.vendite_nette)}</td>
+      <td class="num">${fmtEurSign(p.iva_vendite)}</td>
+      <td class="num">${fmtEurSign(p.spese_nette)}</td>
+      <td class="num ric2-total">${fmtEurSign(p.transfer_amount)}</td>
+    </tr>`;
+  }).join('');
+
+  const totRow = `<tr class="ric2-totale">
+    <td><strong>Totale cash ricevuto a ${(data.mese_target || '').split(' ')[0].toLowerCase()}</strong></td>
+    <td></td><td></td><td></td>
+    <td class="num"><strong>${fmtEur(totalCash)}</strong></td>
+  </tr>`;
+
+  document.getElementById('ric2-tbody').innerHTML = rows + totRow;
+}
+
+// ─── VERIFICA CHIUSURA SETTLEMENT PERIOD ─────────────────────────
+function renderVerifica(data) {
+  const periods = data.settlement_periods || [];
+
+  if (!periods.length) {
+    document.getElementById('verifica-tbody').innerHTML =
+      '<tr><td colspan="5" class="recon-nd-cell">Nessun settlement period trovato</td></tr>';
+    return;
+  }
+
+  document.getElementById('verifica-tbody').innerHTML = periods.map(p => {
+    const ta   = p.transfer_amount;
+    const diff = p.differenza;
+
+    // Icon logic
+    let icon;
+    if (ta === null || ta === undefined) {
+      icon = '<span class="verifica-icon verifica-open">⏳</span>';
+    } else if (diff !== null && Math.abs(diff) <= 0.05) {
+      if (p.transfer_src === 'target') {
+        icon = '<span class="verifica-icon verifica-ok">✅</span>';
+      } else {
+        icon = '<span class="verifica-icon verifica-next">⏳</span>';
+      }
+    } else {
+      icon = '<span class="verifica-icon verifica-fail">❌</span>';
+    }
+
+    const dateRange = p.data_inizio && p.data_fine
+      ? `${shortDate(p.data_inizio)}→${shortDate(p.data_fine)}`
+      : '—';
+
+    const diffDisplay = diff !== null
+      ? (Math.abs(diff) < 0.005 ? '-' : fmtEurSign(diff))
+      : '-';
 
     return `<tr>
-      <td><code style="font-size:.8rem">${p.periodo_id}</code></td>
-      <td>${p.data_inizio}</td>
-      <td>${p.data_fine}</td>
-      <td style="text-align:right">${p.n_transazioni}</td>
-      <td class="num">${fmtEur(p.tx_sum)}</td>
-      <td class="num">${p.transfer_amount !== null && p.transfer_amount !== undefined ? fmtEur(p.transfer_amount) : '—'}</td>
-      <td>${p.transfer_date || '—'}</td>
-      <td style="text-align:center">${badge}</td>
-      <td style="font-size:.78rem;color:var(--text-muted)">${p.note || ''}</td>
+      <td>${icon} <code class="periodo-code">${p.periodo_id}</code></td>
+      <td class="verifica-dates">${dateRange}</td>
+      <td class="num">${fmtEurSign(p.tx_sum)}</td>
+      <td class="num">${ta !== null && ta !== undefined ? fmtEurSign(ta) : '—'}</td>
+      <td class="num verifica-diff">${diffDisplay}</td>
     </tr>`;
   }).join('');
 }
 
-// ─── TRANSACTIONS TABLE ───────────────────────────────────────────
-function populateFilters(txs) {
-  const tipos   = [...new Set(txs.map(t => t['Tipo']).filter(Boolean))];
-  const periods = [...new Set(txs.map(t => t['Numero pagamento']).filter(Boolean))];
+// ─── NOTE & LEGENDA ───────────────────────────────────────────────
+function renderLegenda(data) {
+  const checks = data.checks;
+  const saldo  = data.saldo_residuo;
+  const r  = saldo.ricavi || 0;
+  const i  = saldo.imposte || 0;
+  const s  = saldo.spese || 0;
+  const tr = saldo.trasferimenti || 0;
+  const sg = round2(r + i + s);
 
-  const tipoSel   = document.getElementById('filter-tipo');
-  const periodSel = document.getElementById('filter-period');
+  const voci = [
+    ['Ricavi',
+     'Imponibile vendite al netto dei rimborsi. IVA ESCLUSA.'],
+    ['Spese',
+     'Commissioni + altri costi + ADS + abbonamento. IVA INCLUSA (nota PDF).'],
+    ['Imposte',
+     'IVA netta incassata dai clienti per conto dello stato. Non è un ricavo tuo.'],
+    ['Saldo generato',
+     `Ricavi + Spese + Imposte = ${fmtN(r)} + (${fmtN(s)}) + ${fmtN(i)} = <strong>${fmtEur(sg)}</strong>`],
+    ['Saldo residuo',
+     `Saldo generato – Trasferimenti = ${fmtN(sg)} – ${fmtN(Math.abs(tr))} = <strong>${fmtEur(saldo.importo)}</strong> ancora su Amazon.`],
+    ['Settlement',
+     'Ogni bonifico arriva ~15gg dopo la chiusura del periodo. Il trasferimento nel periodo N salda il periodo N-1. Tutti i periodi chiudono a zero. ✅'],
+    ['ADS',
+     'I costi ADS vengono dedotti direttamente dal saldo Amazon (colonna \'totale\' nel CSV). Verificati contro PDF fattura ADS Italy EUR.'],
+  ];
 
-  tipoSel.innerHTML   = '<option value="">Tutti i tipi</option>'   + tipos.map(v => `<option>${v}</option>`).join('');
-  periodSel.innerHTML = '<option value="">Tutti i periodi</option>' + periods.map(v => `<option>${v}</option>`).join('');
+  document.getElementById('legenda-tbody').innerHTML = voci.map(([termine, desc]) => `
+    <tr>
+      <td class="legenda-termine">${termine}</td>
+      <td class="legenda-desc">${desc}</td>
+    </tr>
+  `).join('');
 }
 
-function filterTransactions() {
-  const tipo   = document.getElementById('filter-tipo').value;
-  const period = document.getElementById('filter-period').value;
-  const text   = document.getElementById('filter-text').value.toLowerCase();
+// ─── HELPERS ──────────────────────────────────────────────────────
+function round2(v) { return Math.round(v * 100) / 100; }
 
-  const filtered = allTransactions.filter(tx => {
-    if (tipo   && tx['Tipo']              !== tipo)   return false;
-    if (period && tx['Numero pagamento']  !== period) return false;
-    if (text) {
-      const haystack = Object.values(tx).join(' ').toLowerCase();
-      if (!haystack.includes(text)) return false;
-    }
-    return true;
-  });
-
-  renderTransactions(filtered);
-}
-
-function renderTransactions(txs) {
-  const tbody = document.getElementById('transactions-tbody');
-
-  if (!txs.length) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted)">Nessuna transazione trovata</td></tr>';
-    return;
-  }
-
-  tbody.innerHTML = txs.map(tx => `<tr>
-    <td>${tx['Data'] || ''}</td>
-    <td>${tx['Tipo'] || ''}</td>
-    <td style="font-size:.73rem;color:var(--text-muted)">${tx['Numero ordine'] || ''}</td>
-    <td>${tx['Descrizione'] || ''}</td>
-    <td class="num">${fmtNum(tx['Vendite'])}</td>
-    <td class="num">${fmtNum(tx['Commissioni di vendita'])}</td>
-    <td class="num">${fmtNum(tx['Altro'])}</td>
-    <td class="num" style="font-weight:700">${fmtNum(tx['totale'])}</td>
-  </tr>`).join('');
-}
-
-function toggleTransactions(btn) {
-  const panel = document.getElementById('transactions-panel');
-  const open  = panel.classList.toggle('hidden');
-  btn.classList.toggle('open', !open);
-}
-
-// ─── NUMBER FORMATTING ────────────────────────────────────────────
 function fmtEur(val) {
   if (val === null || val === undefined) return 'N/D';
   const n = parseFloat(val);
@@ -471,18 +404,43 @@ function fmtEur(val) {
   }).format(n);
 }
 
-function fmtNum(val) {
-  if (val === null || val === undefined || val === '') return '';
+function fmtEurSign(val) {
+  if (val === null || val === undefined) return 'N/D';
   const n = parseFloat(val);
-  if (isNaN(n) || n === 0) return '';
-  return new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+  if (isNaN(n)) return String(val);
+  const abs = new Intl.NumberFormat('it-IT', {
+    minimumFractionDigits: 2, maximumFractionDigits: 2,
+  }).format(Math.abs(n));
+  const sign = n >= 0 ? '+' : '−';
+  return `${sign}${abs} €`;
 }
 
-function fmtSign(val) {
+function fmtN(val) {
   return new Intl.NumberFormat('it-IT', {
-    style: 'currency', currency: 'EUR',
-    minimumFractionDigits: 2, signDisplay: 'always',
+    minimumFractionDigits: 2, maximumFractionDigits: 2,
   }).format(val);
+}
+
+// Convert "DD/MM/YYYY" to short "DD/MM" or "DD/MM/YY"
+function shortDate(s) {
+  if (!s) return '';
+  const parts = s.split('/');
+  if (parts.length < 3) return s;
+  // If year same as current don't show it, else show last 2 digits
+  return `${parts[0]}/${parts[1]}/${parts[2].slice(2)}`;
+}
+
+function nextMonthName(meseTarget) {
+  const MESI_NOMI = ['gennaio','febbraio','marzo','aprile','maggio','giugno',
+                     'luglio','agosto','settembre','ottobre','novembre','dicembre'];
+  const MESI_MAP  = {
+    Gennaio:0, Febbraio:1, Marzo:2, Aprile:3, Maggio:4, Giugno:5,
+    Luglio:6, Agosto:7, Settembre:8, Ottobre:9, Novembre:10, Dicembre:11,
+  };
+  const parts = (meseTarget || '').split(' ');
+  const idx   = MESI_MAP[parts[0]];
+  if (idx === undefined) return 'mese successivo';
+  return MESI_NOMI[(idx + 1) % 12];
 }
 
 // ─── INIT ─────────────────────────────────────────────────────────

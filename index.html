@@ -128,7 +128,7 @@
 </main>
 
 <!-- ═══════════════════════════════════════════════════════════════════
-     VIEW 2 — RESULTS
+     VIEW 2 — RESULTS DASHBOARD
 ═══════════════════════════════════════════════════════════════════ -->
 <main id="results-view" class="hidden">
   <div class="container">
@@ -138,119 +138,85 @@
       ← Nuova Riconciliazione
     </button>
 
-    <!-- Status header -->
-    <div id="results-header" class="results-header">
-      <h1 id="results-title">Riconciliazione</h1>
-      <div id="results-badge" class="status-badge"></div>
-    </div>
-
     <!-- Warnings -->
     <div id="warnings-box" class="warnings-box hidden"></div>
 
-    <!-- 4 Check cards -->
-    <section class="section">
-      <h2 class="section-title">Verifica dei 4 indicatori</h2>
-      <div class="checks-grid">
-        <div class="check-card" id="card-ricavi">
-          <div class="check-icon" id="icon-ricavi"></div>
-          <div class="check-name">Ricavi</div>
-          <div class="check-row"><span class="check-lbl">CSV</span><span class="check-val" id="val-ricavi-csv">—</span></div>
-          <div class="check-row"><span class="check-lbl">PDF</span><span class="check-val" id="val-ricavi-pdf">—</span></div>
-          <div class="check-row check-delta"><span class="check-lbl">Δ</span><span class="check-val" id="val-ricavi-delta">—</span></div>
-        </div>
+    <!-- Dashboard Header -->
+    <div class="dash-header">
+      <h1 id="dash-title" class="dash-title"></h1>
+      <div id="dash-subtitle" class="dash-subtitle"></div>
+    </div>
 
-        <div class="check-card" id="card-spese">
-          <div class="check-icon" id="icon-spese"></div>
-          <div class="check-name">Spese</div>
-          <div class="check-row"><span class="check-lbl">CSV</span><span class="check-val" id="val-spese-csv">—</span></div>
-          <div class="check-row"><span class="check-lbl">PDF</span><span class="check-val" id="val-spese-pdf">—</span></div>
-          <div class="check-row check-delta"><span class="check-lbl">Δ</span><span class="check-val" id="val-spese-delta">—</span></div>
-        </div>
-
-        <div class="check-card" id="card-trasferimenti">
-          <div class="check-icon" id="icon-trasferimenti"></div>
-          <div class="check-name">Pagamenti</div>
-          <div class="check-row"><span class="check-lbl">CSV</span><span class="check-val" id="val-trasf-csv">—</span></div>
-          <div class="check-row"><span class="check-lbl">PDF</span><span class="check-val" id="val-trasf-pdf">—</span></div>
-          <div class="check-row check-delta"><span class="check-lbl">Δ</span><span class="check-val" id="val-trasf-delta">—</span></div>
-          <div class="check-detail" id="detail-trasferimenti"></div>
-        </div>
-
-        <div class="check-card" id="card-ads">
-          <div class="check-icon" id="icon-ads"></div>
-          <div class="check-name">ADS</div>
-          <div class="check-row"><span class="check-lbl">CSV</span><span class="check-val" id="val-ads-csv">—</span></div>
-          <div class="check-row"><span class="check-lbl">PDF</span><span class="check-val" id="val-ads-pdf">—</span></div>
-          <div class="check-row check-delta"><span class="check-lbl">Δ</span><span class="check-val" id="val-ads-delta">—</span></div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Spiegazione narrativa -->
-    <section class="section">
-      <div class="narrative-box" id="narrative-box"></div>
-    </section>
-
-    <!-- Saldo residuo -->
-    <section class="section">
-      <div class="saldo-box" id="saldo-box"></div>
-    </section>
-
-    <!-- Settlement periods -->
-    <section class="section">
-      <h2 class="section-title">Settlement Period (cicli di liquidazione)</h2>
-      <p class="section-desc">
-        I settlement period sono i cicli di pagamento Amazon (~15 giorni).
-        La tabella è informativa: mostra come i bonifici si collegano ai periodi di attività.
-      </p>
+    <!-- RICONCILIAZIONE 1 -->
+    <section class="recon-section">
+      <h2 class="recon-section-title">
+        RICONCILIAZIONE 1 <span class="recon-section-sub">— Verifica PDF Summary vs CSV Transazioni</span>
+      </h2>
       <div class="table-wrapper">
-        <table class="data-table" id="periods-table">
+        <table class="recon-table">
           <thead>
             <tr>
-              <th>Periodo</th>
-              <th>Inizio</th>
-              <th>Fine</th>
-              <th>Transazioni</th>
-              <th>Saldo periodo</th>
-              <th>Bonifico ricevuto</th>
-              <th>Data bonifico</th>
-              <th>Chiusura</th>
-              <th>Note</th>
+              <th>Voce</th>
+              <th class="num">Da CSV</th>
+              <th class="num">Da PDF Summary</th>
+              <th class="num">Differenza</th>
+              <th class="center">Esito</th>
             </tr>
           </thead>
-          <tbody id="periods-tbody"></tbody>
+          <tbody id="ric1-tbody"></tbody>
         </table>
       </div>
     </section>
 
-    <!-- Dettaglio transazioni (collassabile) -->
-    <section class="section">
-      <button class="collapsible-toggle" onclick="toggleTransactions(this)">
-        <span>▶</span> Dettaglio transazioni
-      </button>
-      <div id="transactions-panel" class="collapsible-panel hidden">
-        <div class="table-filters">
-          <select id="filter-tipo" onchange="filterTransactions()">
-            <option value="">Tutti i tipi</option>
-          </select>
-          <select id="filter-period" onchange="filterTransactions()">
-            <option value="">Tutti i periodi</option>
-          </select>
-          <input type="text" id="filter-text" placeholder="Cerca..." oninput="filterTransactions()" />
-        </div>
-        <div class="table-wrapper">
-          <table class="data-table data-table-sm" id="transactions-table">
-            <thead>
-              <tr>
-                <th>Data</th><th>Tipo</th><th>N.Ordine</th><th>Descrizione</th>
-                <th class="num">Vendite</th><th class="num">Commissioni</th>
-                <th class="num">Altro</th><th class="num">Totale</th>
-              </tr>
-            </thead>
-            <tbody id="transactions-tbody"></tbody>
-          </table>
-        </div>
+    <!-- RICONCILIAZIONE 2 -->
+    <section class="recon-section">
+      <h2 class="recon-section-title">
+        RICONCILIAZIONE 2 <span class="recon-section-sub">— Verifica Cash ricevuto sul conto corrente</span>
+      </h2>
+      <div class="table-wrapper">
+        <table class="recon-table">
+          <thead>
+            <tr>
+              <th>Periodo saldato</th>
+              <th class="num">Vendite nette</th>
+              <th class="num">IVA vendite</th>
+              <th class="num">Spese</th>
+              <th class="num">Totale periodo</th>
+            </tr>
+          </thead>
+          <tbody id="ric2-tbody"></tbody>
+        </table>
       </div>
+    </section>
+
+    <!-- VERIFICA CHIUSURA SETTLEMENT PERIOD -->
+    <section class="recon-section">
+      <h2 class="recon-section-title">
+        VERIFICA CHIUSURA SETTLEMENT PERIOD
+        <span class="recon-section-sub">(tutti i periodi coinvolti in <span id="mese-verifica"></span>)</span>
+      </h2>
+      <div class="table-wrapper">
+        <table class="recon-table">
+          <thead>
+            <tr>
+              <th>Periodo</th>
+              <th>Date</th>
+              <th class="num">Tx sum</th>
+              <th class="num">Bonifico</th>
+              <th class="num">Differenza (deve = 0)</th>
+            </tr>
+          </thead>
+          <tbody id="verifica-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- NOTE & LEGENDA -->
+    <section class="recon-section legenda-section">
+      <h2 class="recon-section-title">NOTE &amp; LEGENDA</h2>
+      <table class="legenda-table">
+        <tbody id="legenda-tbody"></tbody>
+      </table>
     </section>
 
   </div>

@@ -70,6 +70,14 @@ exports.handler = async (event) => {
     const prevRows   = files.csv_prev  ? parseAmazonCsv(files.csv_prev)  : null;
     const nextRows   = files.csv_next  ? parseAmazonCsv(files.csv_next)  : null;
 
+    // Detect marketplaces across all loaded CSVs
+    const mktSet = new Set([
+      ...(targetRows._marketplaces || []),
+      ...(prevRows  ? prevRows._marketplaces  || [] : []),
+      ...(nextRows  ? nextRows._marketplaces  || [] : []),
+    ]);
+    const marketplaces = [...mktSet];
+
     // Parse PDFs
     const pdfSum = await parsePdfSummary(files.pdf_summary);
     if (!pdfSum) {
@@ -88,10 +96,10 @@ exports.handler = async (event) => {
     const ricavi  = checks.ricavi.csv;
     const spese   = checks.spese.csv;
     const trasf   = checks.trasferimenti.csv;
-    const imposte = pdfSum.imposte || 0;
+    const imposte = checks.imposte.csv;
     const saldo   = round2(ricavi + imposte + spese + trasf);
 
-    const passList = [checks.ricavi.pass, checks.spese.pass, checks.trasferimenti.pass];
+    const passList = [checks.ricavi.pass, checks.spese.pass, checks.imposte.pass, checks.trasferimenti.pass];
     if (checks.ads.disponibile) passList.push(checks.ads.pass);
     const statusGlobale = passList.some(p => p === false) ? 'ATTENZIONE' : 'OK';
 
@@ -108,30 +116,12 @@ exports.handler = async (event) => {
       }
     }
 
-    const txCols = [
-      '_dateStr','Tipo','Numero pagamento','Numero ordine','Descrizione',
-      'Vendite','Commissioni di vendita','Altri costi relativi alle transazioni','Altro','totale',
-    ];
-    const transazioni = targetRows.map(row => {
-      const rec = {};
-      txCols.forEach(c => { rec[c === '_dateStr' ? 'Data' : c] = row[c] ?? ''; });
-      return rec;
-    });
-
     return jsonResp({
       mese_target:    meseTarget,
+      periodo_label:  getPeriodLabel(meseTarget),
+      marketplaces,
       status_globale: statusGlobale,
       warnings,
-      _debug: {
-        csv_headers:      targetRows._headers     || [],
-        csv_separator:    targetRows._sep         || '?',
-        csv_row_count:    targetRows.length,
-        csv_col_resolved: targetRows._colResolved || {},
-        csv_first_row:    targetRows._firstRow    || '',
-        pdf_keys_found:   Object.entries(pdfSum).filter(([k,v]) => !k.startsWith('_') && v !== null).map(([k]) => k),
-        pdf_raw_values:   { ricavi: pdfSum.ricavi, spese: pdfSum.spese, imposte: pdfSum.imposte, trasferimenti: pdfSum.trasferimenti },
-        pdf_text_sample:  pdfSum._pdfTextSample || '',
-      },
       checks,
       saldo_residuo: {
         importo:       saldo,
@@ -139,11 +129,11 @@ exports.handler = async (event) => {
         imposte:       round2(imposte),
         spese:         round2(spese),
         trasferimenti: round2(trasf),
+        open_periods:  openPeriods.map(p => p.periodo_id),
         spiegazione:   buildSaldoExp(saldo, openPeriods),
       },
       settlement_periods: periods,
       pdf_summary_raw:    pdfSum,
-      transazioni,
     });
 
   } catch (err) {
@@ -320,6 +310,16 @@ function parseAmazonCsv(buf) {
     rows.push(row);
   }
 
+  // Detect marketplaces from metadata lines (0-6, before data headers)
+  const metaText = lines.slice(0, 7).join('\n');
+  const mktRe    = /amazon\.(it|es|de|fr|co\.uk|nl|se|pl|be)/gi;
+  const mktFound = new Set();
+  let mktM;
+  while ((mktM = mktRe.exec(metaText)) !== null) {
+    mktFound.add('amazon.' + mktM[1].toLowerCase());
+  }
+  rows._marketplaces = [...mktFound];
+
   // Attach debug info on the array itself (useful for troubleshooting)
   rows._headers     = rawHeaders;
   rows._sep         = sep;
@@ -430,35 +430,38 @@ async function parsePdfAds(buf) {
 // ── 4 Checks ─────────────────────────────────────────────────────────────────
 
 function computeChecks(rows, pdfSum, pdfAdsEur) {
-  const nonTr = rows.filter(r => r['Tipo'] !== 'Trasferimento');
+  const nonTr  = rows.filter(r => r['Tipo'] !== 'Trasferimento');
   const trRows = rows.filter(r => r['Tipo'] === 'Trasferimento');
 
-  const ricaviCsv = round2(sumCol(rows, 'Vendite'));
-  const speseCsv  = round2(
+  const ricaviCsv  = round2(sumCol(rows, 'Vendite'));
+  const imposteCsv = round2(sumCol(rows, 'imposta sulle vendite dei prodotti'));
+  const speseCsv   = round2(
     sumCol(rows,  'Commissioni di vendita') +
     sumCol(rows,  'Altri costi relativi alle transazioni') +
     sumCol(nonTr, 'Altro')
   );
-  const trasfCsv  = round2(sumCol(trRows, 'totale'));
-  const adsRows   = rows.filter(r => String(r['Descrizione']||'').trim() === 'Costo della pubblicità');
-  const adsCsv    = round2(sumCol(adsRows, 'totale'));
+  const trasfCsv = round2(sumCol(trRows, 'totale'));
+  const adsRows  = rows.filter(r => String(r['Descrizione']||'').trim() === 'Costo della pubblicità');
+  const adsCsv   = round2(sumCol(adsRows, 'totale'));
 
-  const d1 = pdfSum.ricavi !== null ? round2(ricaviCsv - pdfSum.ricavi) : null;
-  const d2 = pdfSum.spese  !== null ? round2(speseCsv  - pdfSum.spese)  : null;
-  const d3 = pdfSum.trasferimenti !== null ? round2(trasfCsv  - pdfSum.trasferimenti) : null;
-  const d4 = pdfAdsEur            !== null ? round2(adsCsv    - pdfAdsEur)            : null;
+  const d1 = pdfSum.ricavi         !== null ? round2(ricaviCsv  - pdfSum.ricavi)         : null;
+  const d2 = pdfSum.spese          !== null ? round2(speseCsv   - pdfSum.spese)          : null;
+  const d3 = pdfSum.imposte        !== null ? round2(imposteCsv - pdfSum.imposte)        : null;
+  const d4 = pdfSum.trasferimenti  !== null ? round2(trasfCsv   - pdfSum.trasferimenti)  : null;
+  const d5 = pdfAdsEur             !== null ? round2(adsCsv     - pdfAdsEur)             : null;
 
   return {
-    ricavi:        { csv: ricaviCsv, pdf: pdfSum.ricavi, differenza: d1, pass: d1 !== null ? Math.abs(d1) <= 0.05 : null },
-    spese:         { csv: speseCsv,  pdf: pdfSum.spese,  differenza: d2, pass: d2 !== null ? Math.abs(d2) <= 0.05 : null },
+    ricavi:        { csv: ricaviCsv,  pdf: pdfSum.ricavi,        differenza: d1, pass: d1 !== null ? Math.abs(d1) <= 0.05 : null },
+    spese:         { csv: speseCsv,   pdf: pdfSum.spese,         differenza: d2, pass: d2 !== null ? Math.abs(d2) <= 0.05 : null },
+    imposte:       { csv: imposteCsv, pdf: pdfSum.imposte,       differenza: d3, pass: d3 !== null ? Math.abs(d3) <= 0.05 : null },
     trasferimenti: {
-      csv: trasfCsv, pdf: pdfSum.trasferimenti, differenza: d3,
-      pass: d3 !== null ? Math.abs(d3) <= 0.05 : false,
+      csv: trasfCsv, pdf: pdfSum.trasferimenti, differenza: d4,
+      pass: d4 !== null ? Math.abs(d4) <= 0.05 : false,
       dettaglio: trRows.map(r => ({ data: r._dateStr || '', importo: round2(r.totale || 0) })),
     },
     ads: {
-      csv: adsCsv, pdf: pdfAdsEur, differenza: d4,
-      pass: d4 !== null ? Math.abs(d4) <= 1.00 : null,
+      csv: adsCsv, pdf: pdfAdsEur, differenza: d5,
+      pass: d5 !== null ? Math.abs(d5) <= 1.00 : null,
       disponibile: pdfAdsEur !== null,
     },
   };
@@ -482,11 +485,27 @@ function computePeriods(targetRows, prevRows, nextRows) {
 
     const isTr = String(row['Tipo'] || '').trim() === 'Trasferimento';
     if (!map[pid]) {
-      map[pid] = { periodo_id: pid, dates: [], tx_sum: 0, transfer_amount: null, transfer_date: null, n_transazioni: 0, first_src: row._src };
+      map[pid] = {
+        periodo_id: pid, dates: [],
+        tx_sum: 0, vendite: 0, iva: 0, commissioni: 0, altri_costi: 0, altro_sum: 0,
+        transfer_amount: null, transfer_date: null, transfer_src: null,
+        n_transazioni: 0, first_src: row._src,
+      };
     }
     if (row._date) map[pid].dates.push(row._date);
-    if (isTr) { map[pid].transfer_amount = round2(row.totale || 0); map[pid].transfer_date = row._date; }
-    else       { map[pid].tx_sum = round2(map[pid].tx_sum + (row.totale || 0)); map[pid].n_transazioni++; }
+    if (isTr) {
+      map[pid].transfer_amount = round2(row.totale || 0);
+      map[pid].transfer_date   = row._date;
+      map[pid].transfer_src    = row._src;
+    } else {
+      map[pid].tx_sum      = round2(map[pid].tx_sum      + (row.totale || 0));
+      map[pid].vendite     += (row['Vendite'] || 0);
+      map[pid].iva         += (row['imposta sulle vendite dei prodotti'] || 0);
+      map[pid].commissioni += (row['Commissioni di vendita'] || 0);
+      map[pid].altri_costi += (row['Altri costi relativi alle transazioni'] || 0);
+      map[pid].altro_sum   += (row['Altro'] || 0);
+      map[pid].n_transazioni++;
+    }
   }
 
   return Object.values(map)
@@ -507,8 +526,12 @@ function computePeriods(targetRows, prevRows, nextRows) {
         data_fine:       fmtDate(dMax),
         n_transazioni:   p.n_transazioni,
         tx_sum:          tx,
+        vendite_nette:   round2(p.vendite),
+        iva_vendite:     round2(p.iva),
+        spese_nette:     round2(p.commissioni + p.altri_costi + p.altro_sum),
         transfer_amount: ta,
         transfer_date:   ta !== null && p.transfer_date ? fmtDate(p.transfer_date) : '',
+        transfer_src:    p.transfer_src,
         differenza:      ta !== null ? round2(tx + ta) : null,
         note:            p.first_src === 'prev' ? 'Aperto nel mese precedente' : ta === null ? 'Si chiude nel mese successivo' : '',
       };
@@ -519,6 +542,21 @@ function computePeriods(targetRows, prevRows, nextRows) {
 
 function sumCol(rows, col) { return rows.reduce((acc, r) => acc + (r[col] || 0), 0); }
 function round2(v)         { return Math.round(v * 100) / 100; }
+
+function getPeriodLabel(meseTarget) {
+  const MESI_NUMS = {
+    Gennaio:1, Febbraio:2, Marzo:3, Aprile:4, Maggio:5, Giugno:6,
+    Luglio:7, Agosto:8, Settembre:9, Ottobre:10, Novembre:11, Dicembre:12,
+  };
+  const parts = meseTarget.split(' ');
+  if (parts.length < 2) return meseTarget;
+  const m = MESI_NUMS[parts[0]];
+  const y = parseInt(parts[1]);
+  if (!m || !y) return meseTarget;
+  const lastDay = new Date(y, m, 0).getDate();
+  const pad = n => String(n).padStart(2, '0');
+  return `${pad(1)}/${pad(m)}/${y} – ${pad(lastDay)}/${pad(m)}/${y}`;
+}
 
 function getMonthLabel(rows) {
   const counts = {};
